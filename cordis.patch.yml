@@ -1,0 +1,8 @@
+# dsh-prompt-sparkle bundle patch：向组合树插入插件行。node 半边注册
+# /sparkle 斜杠命令（包装 ctx.llm.stream 的一次性润色调用，
+# recordInput: false，草稿不进会话日志）；浏览器半边经包的 dsh.client
+# 声明在 /plugins/dsh-prompt-sparkle/client.js 提供，在 composer 工具栏
+# 模型选择器旁挂 sparkle 图标按钮并把润色结果写回草稿。
+- insert:
+    - id: prompt-sparkle
+      name: dsh-prompt-sparkle
