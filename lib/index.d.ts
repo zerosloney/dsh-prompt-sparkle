@@ -15,16 +15,41 @@ import z from "@deepseek-ai/schemastery";
 import type { CommandResult } from "@deepseek-ai/dsh-commands";
 import type { Agent } from "@deepseek-ai/dsh-agent";
 import type { LlmRuntime } from "@deepseek-ai/dsh-llm";
-/** 插件配置：当前无配置项（保留 schema 以便后续扩展，与 dsh 插件约定一致）。 */
-export interface Config {
-}
-/** 重写指令：保持语言与意图，输出单个提示词本体，无问候/解释/包裹。 */
+export type SparkleStyle = "standard" | "structured" | "english" | "cot";
+/** 重写指令预设集：针对不同场景的提示词优化策略。 */
+export declare const STYLE_PROMPTS: Record<SparkleStyle, string>;
 export declare const SPARKLE_SYSTEM_PROMPT: string;
 /** 单次润色的输出 token 上限。 */
 export declare const SPARKLE_MAX_TOKENS = 1024;
 /** 单次润色的端到端超时（毫秒）。 */
 export declare const SPARKLE_TIMEOUT_MS = 15000;
 export declare const COMMAND_NAME = "sparkle";
+export interface FastModelConfig {
+    provider?: string;
+    model?: string;
+}
+/** 插件配置 Schema：供 DSH 设置面板及运行期定制。 */
+export interface Config {
+    temperature?: number;
+    maxTokens?: number;
+    timeoutMs?: number;
+    defaultStyle?: SparkleStyle;
+    customPrompt?: string;
+    fastModel?: FastModelConfig;
+}
+export declare const Config: z<Config>;
+/** 客户端单次调用可附带的动态覆盖参数（通过 base64 JSON 传输）。 */
+export interface SparkleOptions {
+    temperature?: number;
+    maxTokens?: number;
+    timeoutMs?: number;
+    fastModel?: {
+        provider?: string;
+        model?: string;
+    };
+    customPrompt?: string;
+}
+export declare function decodeOptions(raw?: string): SparkleOptions | undefined;
 /** 浏览器半边可依赖的 wire 编码（标准 base64，无空白）。 */
 export declare function encodeDraft(text: string): string;
 /** 解码命令参数里的 base64 草稿；非法或空白输入抛 SparkleError。 */
@@ -34,17 +59,17 @@ export declare class SparkleError extends Error {
 }
 /**
  * 用指定路由跑一次独立的润色流，返回拼接后的纯文本。
- * @param llm - LLM 运行时（只需 stream）。
- * @param provider - 会话当前选定的 provider。
- * @param model - 会话当前选定的 model。
- * @param draft - 解码后的草稿文本。
- * @param signal - 取消信号（UI 取消 + 超时的合成信号）。
  */
-export declare function runSparkle(llm: Pick<LlmRuntime, "stream">, provider: string, model: string, draft: string, signal: AbortSignal): Promise<string>;
-/** 命令处理：解码草稿 → 会话路由 → 独立润色流 → 结果原路返回。 */
-export declare function handleSparkleCommand(agent: Agent, rawInput: string, llm: Pick<LlmRuntime, "stream">, signal: AbortSignal): Promise<CommandResult>;
+export declare function runSparkle(llm: Pick<LlmRuntime, "stream">, provider: string, model: string, draft: string, signal: AbortSignal, options?: {
+    system?: string;
+    temperature?: number;
+    maxTokens?: number;
+}): Promise<string>;
+/** 命令处理：解码草稿、风格与客户端选项 → 会话/极速路由 → 独立润色流 → 结果原路返回。 */
+export declare function handleSparkleCommand(agent: Agent, rawInput: string, llm: Pick<LlmRuntime, "stream">, signal: AbortSignal, config?: Config): Promise<CommandResult>;
 export default class PromptSparkleService extends Service {
+    config: Config;
     static inject: string[];
-    static Config: z<Schemastery.ObjectS<{}>, Schemastery.ObjectT<{}>>;
-    constructor(ctx: Context, config: Config);
+    static Config: z<Config>;
+    constructor(ctx: Context, config?: Config);
 }

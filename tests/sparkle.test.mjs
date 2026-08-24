@@ -130,6 +130,60 @@ test("handleSparkleCommand：流失败翻译成 error 结果", async () => {
   assert.match(result.text, /route down/);
 });
 
+test("handleSparkleCommand：支持多风格预设参数与自定义提示词", async () => {
+  const llm = fakeLlm(textScript("结构化提示词"));
+  const result = await handleSparkleCommand(
+    AGENT,
+    encodeDraft("帮我写一个网页") + " structured",
+    llm,
+    SIGNAL,
+  );
+  assert.equal(result.kind, "success");
+  assert.equal(llm.requests.length, 1);
+  assert.match(llm.requests[0].system, /structured prompt/i);
+
+  // 测试自定义配置覆盖
+  const customLlm = fakeLlm(textScript("自定义输出"));
+  await handleSparkleCommand(
+    AGENT,
+    encodeDraft("测试草稿"),
+    customLlm,
+    SIGNAL,
+    { customPrompt: "Custom System Prompt", temperature: 0.1, maxTokens: 2048 },
+  );
+  assert.equal(customLlm.requests[0].system, "Custom System Prompt");
+  assert.equal(customLlm.requests[0].temperature, 0.1);
+  assert.equal(customLlm.requests[0].maxTokens, 2048);
+});
+
+test("handleSparkleCommand：支持客户端 options Base64 动态覆盖与极速模型路由", async () => {
+  const llm = fakeLlm(textScript("极速润色结果"));
+  const clientOpts = {
+    temperature: 0.15,
+    maxTokens: 512,
+    fastModel: { provider: "fast-provider", model: "fast-model" },
+    customPrompt: "Fast Route Prompt",
+  };
+  const optsB64 = Buffer.from(JSON.stringify(clientOpts), "utf8").toString("base64");
+
+  const result = await handleSparkleCommand(
+    AGENT, // AGENT 本身提供的是 current-route / current-model
+    encodeDraft("草稿内容") + " standard " + optsB64,
+    llm,
+    SIGNAL,
+  );
+
+  assert.equal(result.kind, "success");
+  assert.equal(result.text, "极速润色结果");
+  assert.equal(llm.requests.length, 1);
+  // 验证极速模型路由生效
+  assert.equal(llm.requests[0].provider, "fast-provider");
+  assert.equal(llm.requests[0].model, "fast-model");
+  assert.equal(llm.requests[0].temperature, 0.15);
+  assert.equal(llm.requests[0].maxTokens, 512);
+  assert.equal(llm.requests[0].system, "Fast Route Prompt");
+});
+
 test("handleSparkleCommand：取消信号透传而非翻译", async () => {
   const controller = new AbortController();
   controller.abort();

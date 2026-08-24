@@ -18,15 +18,36 @@ import type { Agent } from "@deepseek-ai/dsh-agent";
 import { BlockAssembler, createUserMessage } from "@deepseek-ai/dsh-llm";
 import type { LlmRuntime, Message } from "@deepseek-ai/dsh-llm";
 
-/** 插件配置：当前无配置项（保留 schema 以便后续扩展，与 dsh 插件约定一致）。 */
-export interface Config {}
+export type SparkleStyle = "standard" | "structured" | "english" | "cot";
 
-/** 重写指令：保持语言与意图，输出单个提示词本体，无问候/解释/包裹。 */
-export const SPARKLE_SYSTEM_PROMPT = [
-  "You are a prompt-rewriting assistant. Rewrite the user's draft into a clearer, more direct prompt that the same model would answer better.",
-  "Preserve the user's intent, language, and any domain-specific terms. Keep the output a single prompt, not an answer.",
-  "Do not add greetings, disclaimers, or explanations. Do not wrap the output in quotes, code fences, or Markdown. Output the rewritten prompt only, in plain text.",
-].join("\n");
+/** 重写指令预设集：针对不同场景的提示词优化策略。 */
+export const STYLE_PROMPTS: Record<SparkleStyle, string> = {
+  standard: [
+    "You are a prompt-rewriting assistant. Rewrite the user's draft into a clearer, more direct prompt that the same model would answer better.",
+    "Preserve the user's intent, language, code blocks, placeholder variables (e.g. {{var}}), and domain terms. Keep the output a single prompt, not an answer.",
+    "Do not add greetings, disclaimers, explanations, or thinking traces. Do not wrap the output in quotes, code fences, or Markdown. Output the rewritten prompt only, in plain text.",
+  ].join("\n"),
+  structured: [
+    "You are an expert prompt engineer. Rewrite the user's draft into a well-structured prompt following standard components:",
+    "- Role & Persona",
+    "- Task & Primary Objective",
+    "- Context & Background",
+    "- Constraints & Requirements",
+    "- Expected Output Format",
+    "Preserve the user's intent and language. Output the rewritten structured prompt only with clean markdown headers and bullet points, without meta-chatter or explanation.",
+  ].join("\n"),
+  english: [
+    "You are an elite prompt engineer. Translate and rewrite the user's draft into high-quality, professional English for optimal LLM instruction following.",
+    "Preserve all variables, placeholders, code snippets, and domain technical terms. Output the English rewritten prompt only, in plain text without conversational filler.",
+  ].join("\n"),
+  cot: [
+    "You are a prompt-rewriting assistant. Rewrite the user's draft into a high-performance prompt that guides step-by-step reasoning (Chain of Thought).",
+    "Incorporate explicit guidance to analyze requirements, consider edge cases, verify intermediate steps, and produce a well-reasoned solution.",
+    "Preserve the user's language and core intent. Output the rewritten prompt only, in plain text.",
+  ].join("\n"),
+};
+
+export const SPARKLE_SYSTEM_PROMPT = STYLE_PROMPTS.standard;
 
 /** 单次润色的输出 token 上限。 */
 export const SPARKLE_MAX_TOKENS = 1024;
@@ -35,6 +56,52 @@ export const SPARKLE_MAX_TOKENS = 1024;
 export const SPARKLE_TIMEOUT_MS = 15_000;
 
 export const COMMAND_NAME = "sparkle";
+
+export interface FastModelConfig {
+  provider?: string;
+  model?: string;
+}
+
+/** 插件配置 Schema：供 DSH 设置面板及运行期定制。 */
+export interface Config {
+  temperature?: number;
+  maxTokens?: number;
+  timeoutMs?: number;
+  defaultStyle?: SparkleStyle;
+  customPrompt?: string;
+  fastModel?: FastModelConfig;
+}
+
+export const Config: z<Config> = z.object({
+  temperature: z.number().min(0).max(1).default(0.3).description("润色采样的温度系数 (0-1)，越低越稳定"),
+  maxTokens: z.number().min(128).max(8192).default(1024).description("润色单次输出 token 上限"),
+  timeoutMs: z.number().min(3000).max(60000).default(15000).description("润色请求超时时间（毫秒）"),
+  defaultStyle: z.union(["standard", "structured", "english", "cot"]).default("standard").description("默认润色风格预设"),
+  customPrompt: z.string().role("textarea").default("").description("自定义系统提示词（非空时优先覆盖所选预设）"),
+  fastModel: z.object({
+    provider: z.string().default("").description("极速专用模型提供商（如 deepseek）"),
+    model: z.string().default("").description("极速专用模型名称（如 deepseek-chat）"),
+  }).default({ provider: "", model: "" }).description("极速专用模型路由（配置后润色不再跟随会话思考模型，实现秒级响应）"),
+});
+
+/** 客户端单次调用可附带的动态覆盖参数（通过 base64 JSON 传输）。 */
+export interface SparkleOptions {
+  temperature?: number;
+  maxTokens?: number;
+  timeoutMs?: number;
+  fastModel?: { provider?: string; model?: string };
+  customPrompt?: string;
+}
+
+export function decodeOptions(raw?: string): SparkleOptions | undefined {
+  if (!raw || raw.trim().length === 0) return undefined;
+  try {
+    const json = Buffer.from(raw.trim(), "base64").toString("utf8");
+    return JSON.parse(json) as SparkleOptions;
+  } catch {
+    return undefined;
+  }
+}
 
 /** 浏览器半边可依赖的 wire 编码（标准 base64，无空白）。 */
 export function encodeDraft(text: string): string {
@@ -67,11 +134,6 @@ function routeOf(agent: Agent): { provider: string; model: string } {
 
 /**
  * 用指定路由跑一次独立的润色流，返回拼接后的纯文本。
- * @param llm - LLM 运行时（只需 stream）。
- * @param provider - 会话当前选定的 provider。
- * @param model - 会话当前选定的 model。
- * @param draft - 解码后的草稿文本。
- * @param signal - 取消信号（UI 取消 + 超时的合成信号）。
  */
 export async function runSparkle(
   llm: Pick<LlmRuntime, "stream">,
@@ -79,7 +141,16 @@ export async function runSparkle(
   model: string,
   draft: string,
   signal: AbortSignal,
+  options: {
+    system?: string;
+    temperature?: number;
+    maxTokens?: number;
+  } = {},
 ): Promise<string> {
+  const system = options.system ?? SPARKLE_SYSTEM_PROMPT;
+  const temperature = options.temperature ?? 0.3;
+  const maxTokens = options.maxTokens ?? SPARKLE_MAX_TOKENS;
+
   const messages: Message[] = [
     createUserMessage({
       content: [{ type: "text", text: draft }],
@@ -91,8 +162,9 @@ export async function runSparkle(
     provider,
     model,
     messages,
-    system: SPARKLE_SYSTEM_PROMPT,
-    maxTokens: SPARKLE_MAX_TOKENS,
+    system,
+    temperature,
+    maxTokens,
     signal,
   })) {
     assembler.push(chunk);
@@ -119,23 +191,54 @@ export async function runSparkle(
   return text;
 }
 
-/** 命令处理：解码草稿 → 会话路由 → 独立润色流 → 结果原路返回。 */
+/** 命令处理：解码草稿、风格与客户端选项 → 会话/极速路由 → 独立润色流 → 结果原路返回。 */
 export async function handleSparkleCommand(
   agent: Agent,
   rawInput: string,
   llm: Pick<LlmRuntime, "stream">,
   signal: AbortSignal,
+  config: Config = {},
 ): Promise<CommandResult> {
+  const parts = rawInput.trim().split(/\s+/);
+  const b64 = parts[0] ?? "";
+  const styleArg = (parts[1] as SparkleStyle) ?? config.defaultStyle ?? "standard";
+  const clientOptions = decodeOptions(parts[2]);
+
+  const customPrompt = clientOptions?.customPrompt ?? config.customPrompt;
+  const systemPrompt =
+    customPrompt && customPrompt.trim().length > 0
+      ? customPrompt
+      : STYLE_PROMPTS[styleArg] ?? STYLE_PROMPTS.standard;
+
   let draft: string;
   try {
-    draft = decodeDraft(rawInput);
+    draft = decodeDraft(b64);
   } catch (error) {
     return { kind: "error", text: error instanceof SparkleError ? error.message : String(error) };
   }
   try {
-    const { provider, model } = routeOf(agent);
-    const withDeadline = AbortSignal.any([signal, AbortSignal.timeout(SPARKLE_TIMEOUT_MS)]);
-    const enhanced = await runSparkle(llm, provider, model, draft, withDeadline);
+    let provider: string;
+    let model: string;
+    const fast = clientOptions?.fastModel ?? config.fastModel;
+    if (fast?.provider && fast.provider.trim() !== "" && fast?.model && fast.model.trim() !== "") {
+      provider = fast.provider.trim();
+      model = fast.model.trim();
+    } else {
+      const routed = routeOf(agent);
+      provider = routed.provider;
+      model = routed.model;
+    }
+
+    const timeout = clientOptions?.timeoutMs ?? config.timeoutMs ?? SPARKLE_TIMEOUT_MS;
+    const temperature = clientOptions?.temperature ?? config.temperature ?? 0.3;
+    const maxTokens = clientOptions?.maxTokens ?? config.maxTokens ?? SPARKLE_MAX_TOKENS;
+
+    const withDeadline = AbortSignal.any([signal, AbortSignal.timeout(timeout)]);
+    const enhanced = await runSparkle(llm, provider, model, draft, withDeadline, {
+      system: systemPrompt,
+      temperature,
+      maxTokens,
+    });
     return { kind: "success", text: enhanced };
   } catch (error) {
     if (signal.aborted) throw error;
@@ -148,22 +251,20 @@ export async function handleSparkleCommand(
 
 export default class PromptSparkleService extends Service {
   static inject = ["commands", "llm"];
+  static Config = Config;
 
-  static Config = z.object({});
-
-  constructor(ctx: Context, config: Config) {
+  constructor(ctx: Context, public config: Config = {}) {
     super(ctx, "promptSparkle");
-    void config;
 
     ctx.effect(
       () =>
         ctx.commands.register({
           name: COMMAND_NAME,
-          description: "润色当前输入框草稿：用当前会话的模型重写为更清晰的提示词",
+          description: "润色当前输入框草稿：用当前会话的模型重写为更清晰的提示词 (/sparkle <base64> [style] [optionsBase64])",
           // 草稿以 base64 走参数，不落会话日志。
           recordInput: false,
           handler: (invocation) =>
-            handleSparkleCommand(invocation.agent, invocation.rawInput, ctx.llm, invocation.signal),
+            handleSparkleCommand(invocation.agent, invocation.rawInput, ctx.llm, invocation.signal, this.config),
         }),
       "prompt-sparkle: /sparkle command",
     );

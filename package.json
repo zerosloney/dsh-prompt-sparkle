@@ -4,6 +4,13 @@
   "description": "DeepSeek Harness 插件：对话框提示词润色——在 composer 工具栏模型选择器旁挂 sparkle 图标按钮（+ Ctrl/Cmd+Shift+E），用当前会话的模型把草稿重写为更清晰的提示词，结果写回输入框（Ctrl/Cmd+Z 可撤销）。",
   "license": "MIT",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zerosloney/dsh-prompt-sparkle.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "files": [
     "lib/",
     "cordis.patch.yml",
