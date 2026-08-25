@@ -14,6 +14,7 @@ import { Context, Service } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import type { CommandResult } from "@deepseek-ai/dsh-commands";
 import type { Agent } from "@deepseek-ai/dsh-agent";
+export { detectHarnessVersion, describeHarness, familyOf, compareVersions } from "./harness-version.js";
 import type { LlmRuntime } from "@deepseek-ai/dsh-llm";
 export type SparkleStyle = "standard" | "structured" | "english" | "cot";
 /** 重写指令预设集：针对不同场景的提示词优化策略。 */

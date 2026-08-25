@@ -16,6 +16,8 @@ import z from "@deepseek-ai/schemastery";
 import type { CommandResult } from "@deepseek-ai/dsh-commands";
 import type { Agent } from "@deepseek-ai/dsh-agent";
 import { BlockAssembler, createUserMessage } from "@deepseek-ai/dsh-llm";
+import { detectHarnessVersion, describeHarness } from "./harness-version.js";
+export { detectHarnessVersion, describeHarness, familyOf, compareVersions } from "./harness-version.js";
 import type { LlmRuntime, Message } from "@deepseek-ai/dsh-llm";
 
 export type SparkleStyle = "standard" | "structured" | "english" | "cot";
@@ -255,6 +257,14 @@ export default class PromptSparkleService extends Service {
 
   constructor(ctx: Context, public config: Config = {}) {
     super(ctx, "promptSparkle");
+
+    // 启动时自动探测宿主 harness 版本（兼容家族 + 各 seam 包版本），仅记录日志。
+    // 两个支持版本在 host seam 上源码级一致，行为分支在浏览器半边的线协议层。
+    try {
+      ctx.logger.info("[prompt-sparkle] deepseek-harness " + describeHarness(detectHarnessVersion()));
+    } catch (error) {
+      ctx.logger.warn("[prompt-sparkle] harness version detection failed: " + String(error));
+    }
 
     ctx.effect(
       () =>

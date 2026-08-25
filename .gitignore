@@ -1,3 +1,4 @@
 node_modules/
 .cbx/
 *.tsbuildinfo
+tests/compat/reports/

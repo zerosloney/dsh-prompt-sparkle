@@ -1,0 +1,6 @@
+# sparkle-probe bundle patch：在 prompt-sparkle 之后插入探针行。
+# 探针注入 promptSparkle 服务（注入成功即证明插件已加载并注册服务），
+# 随后写标记文件并退出进程，供兼容性测试断言。
+- insert:
+    - id: sparkle-probe
+      name: sparkle-probe
