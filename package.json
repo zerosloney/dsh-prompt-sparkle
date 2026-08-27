@@ -41,7 +41,8 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "npm run build && node --test tests/*.test.mjs",
-    "test:compat": "node scripts/run-compat-tests.mjs"
+    "test:compat": "node scripts/run-compat-tests.mjs",
+    "publish:local": "node scripts/publish.mjs"
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "^3.18.1"

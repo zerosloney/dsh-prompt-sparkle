@@ -79,6 +79,26 @@ npm test        # tsc 构建 + node --test
 
 浏览器半边是手写 vanilla JS（无构建步骤），改完直接重启 web 服务即可。
 
+## 发布（本机）
+
+GitHub Actions 只保留 CI 工作流（`.github/workflows/ci.yml`：push /
+PR 触发，npm ci + 构建 + 测试）；原发布工作流（推送 `v*` tag 后由 CI 构建
+并发布 npm）已移除，发布改为本机脚本一键执行：
+
+```sh
+npm run publish:local                # patch 递增：0.1.2 → 0.1.3
+npm run publish:local -- --minor     # minor 递增
+npm run publish:local -- --major     # major 递增
+npm run publish:local -- 0.2.0       # 显式指定版本
+npm run publish:local -- --no-git    # 跳过 git tag/commit
+npm run publish:local -- --dry-run   # 只测试 + 预览版本，不落盘不发布
+```
+
+执行流程：`npm test`（构建 + 测试）→ 版本号写入 `package.json` →
+`npm publish --access public`（需先 `npm login`）→ 提交版本号变更并打
+`v<version>` tag（以保留原 tag 触发语义；`git push && git push --tags`
+同步远端）。
+
 ## 依赖
 
 运行时依赖 npm 发布版 `@deepseek-ai/dsh-llm`（`BlockAssembler` /
