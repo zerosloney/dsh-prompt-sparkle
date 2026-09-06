@@ -8,7 +8,7 @@ sparkle 图标按钮（快捷键 `Ctrl/Cmd+Shift+E`），把当前草稿交给**
 
 ```
 [sparkle 按钮 / Ctrl+Shift+E]
-        │ 读 composer textarea 草稿
+        │ 读 composer 草稿（textarea 或 contenteditable）
         ▼
 浏览器半边 lib/client.js（vanilla DOM）
         │ ctx.remote.commands.execute(sessionId, '/sparkle <base64>', [])
