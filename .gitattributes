@@ -1,0 +1,27 @@
+# Auto-detect text/binary; normalize line endings to LF everywhere.
+* text=auto eol=lf
+
+# Windows shell scripts must keep CRLF to run reliably.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Lockfiles must stay byte-identical across platforms.
+package-lock.json text eol=lf -diff
+
+# Common binary blobs — never touch line endings.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.svg  binary
+*.woff binary
+*.woff2 binary
+*.ttf  binary
+*.eot  binary
+*.zip  binary
+*.gz   binary
+*.tar  binary
+*.wasm binary
+*.map  binary
