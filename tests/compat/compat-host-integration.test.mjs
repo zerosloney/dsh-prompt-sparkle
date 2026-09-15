@@ -13,7 +13,7 @@
 // 运行：DSH_HARNESS_DIR=<dir> DSH_HARNESS_FAMILY=<legacy-rc7|current> \
 //        node --test tests/compat/compat-host-integration.test.mjs
 
-import test from "node:test";
+import nodeTest from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -26,8 +26,17 @@ const PLUGIN_ROOT = join(HERE, "..", "..");
 
 const harnessDir = process.env.DSH_HARNESS_DIR;
 const expectedFamily = process.env.DSH_HARNESS_FAMILY ?? "unknown";
-assert.ok(harnessDir && existsSync(harnessDir),
-  "需要 DSH_HARNESS_DIR 指向隔离 harness 安装目录（@deepseek-ai/dsh 的安装根）");
+// npm test 统一入口也会加载本文件：未设置 DSH_HARNESS_DIR 时整套登记为
+// skip（真实执行经 scripts/run-compat-tests.mjs 编排）；设置了但目录缺失
+// 保持硬失败——编排器配错不能静默跳过。
+const harnessReady = harnessDir !== undefined && existsSync(harnessDir);
+if (harnessDir !== undefined && !harnessReady) {
+  throw new Error(`DSH_HARNESS_DIR 不存在：${harnessDir}`);
+}
+const test = Object.assign(
+  harnessReady ? nodeTest : (...args) => nodeTest.skip(...args),
+  { before: nodeTest.before, after: nodeTest.after },
+);
 
 // ---------- 组装临时链接树，让插件与测试解析到目标环境的包 ----------
 
@@ -39,7 +48,7 @@ const HARNESS_SCOPED_PACKAGES = [
   "schemastery",
 ];
 
-const envRequire = createRequire(join(harnessDir, "package.json"));
+let envRequire;
 
 /** 从环境安装中解析包的真实目录。 */
 function resolveEnvPackageDir(packageName) {
@@ -60,21 +69,23 @@ function resolveEnvPackageDir(packageName) {
   throw new Error(`无法在 ${harnessDir} 中解析 ${packageName}`);
 }
 
-const linkRoot = mkdtempSync(join(tmpdir(), "sparkle-host-"));
-const linkModules = join(linkRoot, "node_modules");
-const linkScoped = join(linkModules, "@deepseek-ai");
-mkdirSync(linkScoped, { recursive: true });
+let linkRoot = "";
+let linkModules = "";
 
-const envScopedDir = join(harnessDir, "node_modules", "@deepseek-ai");
-for (const name of HARNESS_SCOPED_PACKAGES) {
-  const target = resolveEnvPackageDir(`@deepseek-ai/${name}`);
-  // Windows junction 无需管理员权限；非 Windows 用 dir 链接
-  symlinkSync(target, join(linkScoped, name), process.platform === "win32" ? "junction" : "dir");
+if (harnessReady) {
+  envRequire = createRequire(join(harnessDir, "package.json"));
+  linkRoot = mkdtempSync(join(tmpdir(), "sparkle-host-"));
+  linkModules = join(linkRoot, "node_modules");
+  const linkScoped = join(linkModules, "@deepseek-ai");
+  mkdirSync(linkScoped, { recursive: true });
+
+  for (const name of HARNESS_SCOPED_PACKAGES) {
+    const target = resolveEnvPackageDir(`@deepseek-ai/${name}`);
+    // Windows junction 无需管理员权限；非 Windows 用 dir 链接
+    symlinkSync(target, join(linkScoped, name), process.platform === "win32" ? "junction" : "dir");
+  }
+  symlinkSync(PLUGIN_ROOT, join(linkModules, "dsh-prompt-sparkle"), process.platform === "win32" ? "junction" : "dir");
 }
-symlinkSync(PLUGIN_ROOT, join(linkModules, "dsh-prompt-sparkle"), process.platform === "win32" ? "junction" : "dir");
-
-/** 与插件同一解析锚点的 require（保证包实例唯一）。 */
-const sharedRequire = createRequire(join(linkModules, "dsh-prompt-sparkle", "lib", "index.js"));
 
 async function importShared(packageName) {
   const resolved = envRequire.resolve(packageName);
@@ -83,9 +94,11 @@ async function importShared(packageName) {
 
 /** 记录目标环境实际解析到的包版本（防误用 devDependencies）。 */
 const resolvedVersions = {};
-for (const name of HARNESS_SCOPED_PACKAGES) {
-  const dir = resolveEnvPackageDir(`@deepseek-ai/${name}`);
-  resolvedVersions[name] = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")).version;
+if (harnessReady) {
+  for (const name of HARNESS_SCOPED_PACKAGES) {
+    const dir = resolveEnvPackageDir(`@deepseek-ai/${name}`);
+    resolvedVersions[name] = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")).version;
+  }
 }
 
 // ---------- 测试替身 ----------
@@ -136,6 +149,7 @@ let executeArity;
 let disposeLlm;
 
 test.before(async () => {
+  if (!harnessReady) return;
   const [{ Context }, { default: CommandRuntime }] = await Promise.all([
     importShared("@deepseek-ai/cordis"),
     importShared("@deepseek-ai/dsh-commands"),
@@ -156,6 +170,7 @@ test.before(async () => {
 });
 
 test.after(async () => {
+  if (!harnessReady) return;
   try {
     await ctx?.stop?.();
   } catch {

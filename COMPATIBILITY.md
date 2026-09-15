@@ -10,6 +10,7 @@
 | deepseek-harness 0.1.0-rc.7 | `legacy-rc7` | 旧线协议：`commands.execute(agent, line, signal)` |
 | deepseek-harness 0.1.0-rc.8 / 0.1.1-rc.1 / 0.1.1-rc.2（当前线） | `current` | 新线协议：`commands.execute(agent, line, images, signal)` |
 | deepseek-harness 0.1.2-rc.1 | `current` | 线协议不变；**composer 输入面从 `<textarea>` 迁到 Lexical contenteditable（`[data-composer-input]`）**，浏览器半边 draftState/writeDraft 双路径适配（v0.1.3）：读草稿/选区走文本空间递归收集，写回走 focus → 全选 → `execCommand("insertText")`（Lexical 会把变更纳入 EditorState 并通知输入机），旧 textarea 路径保留 |
+| deepseek-harness 0.1.3-alpha.1+（含 0.1.5-rc.x） | `current` | 线协议位置形态不变，但 wire 描述符里附件参数从 `images` 改名 `submittedAttachments`（commit `8a0ff3aff8`，文件上传流改造）——浏览器半边的线协议判定锚从"参数名 === images"改为"**`source:json` 业务参数计数 ≥ 2**"（v0.1.4），对参数改名免疫。设置面板的模型下拉自 v0.1.4 起经 `remote.session.modelCatalog()`（0.1.2-rc.1+ 提供）动态填充宿主已配置的供应商模型，更早宿主降级为内置 DeepSeek 默认组 |
 
 > 范围外的版本（如 0.1.0-rc.6 及更早、0.2.x）不在承诺范围内；插件会以
 > `family=unknown` 记录日志并按 current 线协议尝试调用（多数情况下仍可
@@ -58,8 +59,9 @@
 │ lib/client.js 兼容层                                            │
 │   getExecuteModeSync(ctx)                                      │
 │     - 读 ctx.get('typert').remotes.list() 中 commands/execute  │
-│       描述符是否含 images 参数（两版本 typert 实现一致，        │
-│       零探测、零副作用）                                       │
+│       描述符的 source:json 业务参数计数（≥2=current，1=rc7；   │
+│       各版本 typert 实现一致，零探测、零副作用，且对 0.1.3 的   │
+│       附件参数改名 submittedAttachments 免疫）                  │
 │   probeExecuteMode(ctx, sessionId)   （typert 不可用时的回退）  │
 │     - 一次幂等探测：execute(sid,'/__dsh_prompt_sparkle_probe__',│
 │       [])；current → {ok:true,value:undefined}；rc7 → 代理层    │

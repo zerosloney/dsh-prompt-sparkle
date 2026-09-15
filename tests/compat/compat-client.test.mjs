@@ -3,7 +3,7 @@
 // 加载真实的 lib/client.js（经 window.__ModuleLoader__.load 捕获工厂），
 // 用忠实复刻 dsh 客户端代理（packages/api/gateway/src/client/index.ts 的
 // invoke 逻辑）的 rc7 / current 两种 proxy 验证：
-//  - typert 描述符识别（images 参数有无）
+//  - typert 描述符识别（source:json 业务参数计数，附件参数名免疫）
 //  - 探测回退（typert 缺失时）
 //  - sparkleRequest 的调用形态选择
 // 运行：node --test tests/compat/compat-client.test.mjs
@@ -68,7 +68,7 @@ const RC7_EXECUTE_DESCRIPTOR = {
   cancellation: { parameter: "signal" },
 };
 
-/** current 描述符：execute(agent, line, images, signal)。 */
+/** current 描述符：execute(agent, line, images, signal) —— 0.1.0-rc.8 ~ 0.1.2-rc.1。 */
 const CURRENT_EXECUTE_DESCRIPTOR = {
   namespace: "commands",
   method: "execute",
@@ -76,6 +76,23 @@ const CURRENT_EXECUTE_DESCRIPTOR = {
     { name: "agent", wire: "agentId", source: "lookup" },
     { name: "line", wire: "line", source: "json" },
     { name: "images", wire: "images", source: "json" },
+  ],
+  cancellation: { parameter: "signal" },
+};
+
+/** dsh 0.1.3-alpha.1+ 描述符：附件参数改名 submittedAttachments。
+ *  真实签名见 deepseek-harness packages/interaction/commands/src/index.ts
+ *  的 @Remote execute（wire 描述符由 generator 从源码参数生成；lib/ 下的
+ *  生成物不入库且可能陈旧，勿以其为准）。改名曾使按参数名 `images` 判定
+ *  的旧兼容层误判为 legacy 并少传一个参数（"润色调用失败"回归），此处
+ *  锁定新锚。 */
+const ATTACHMENTS_RENAMED_EXECUTE_DESCRIPTOR = {
+  namespace: "commands",
+  method: "execute",
+  parameters: [
+    { name: "agent", wire: "agentId", source: "lookup" },
+    { name: "line", wire: "line", source: "json" },
+    { name: "submittedAttachments", wire: "submittedAttachments", source: "json" },
   ],
   cancellation: { parameter: "signal" },
 };
@@ -131,7 +148,7 @@ const SESSION = "session-test-1";
 
 // ---------- typert 描述符识别 ----------
 
-test("rc7：typert 描述符无 images 参数 → legacy 模式（2 参调用）", () => {
+test("rc7：typert 描述符只有 1 个 json 业务参数 → legacy 模式（2 参调用）", () => {
   resetExecuteModeCache();
   const ctx = makeCtx(null, makeTypert(RC7_EXECUTE_DESCRIPTOR));
   const mode = getExecuteModeSync(ctx);
@@ -144,7 +161,7 @@ test("rc7：typert 描述符无 images 参数 → legacy 模式（2 参调用）
   assert.equal(proxy.calls[0][1], "/sparkle abc");
 });
 
-test("current：typert 描述符带 images 参数 → current 模式（3 参调用）", () => {
+test("current：typert 描述符带 images 附件参数 → current 模式（3 参调用）", () => {
   resetExecuteModeCache();
   const ctx = makeCtx(null, makeTypert(CURRENT_EXECUTE_DESCRIPTOR));
   const mode = getExecuteModeSync(ctx);
@@ -154,6 +171,29 @@ test("current：typert 描述符带 images 参数 → current 模式（3 参调�
   const outcome = sparkleRequest(mode, proxy, SESSION, "/sparkle abc");
   assert.equal(proxy.calls[0].length, 3, "current 模式传 (sessionId, cmd, []) 三个参数");
   assert.deepEqual(proxy.calls[0][2], []);
+});
+
+test("dsh 0.1.3+：附件参数改名 submittedAttachments 仍判 current（回归锁定）", async () => {
+  // 修复前：判定锚是参数名 === 'images'，改名后被误判为 legacy → 2 参调用 →
+  // 客户端代理抛 "expected 3 business argument(s)... got 2" → 润色必败。
+  resetExecuteModeCache();
+  const ctx = makeCtx(null, makeTypert(ATTACHMENTS_RENAMED_EXECUTE_DESCRIPTOR));
+  const mode = getExecuteModeSync(ctx);
+  assert.deepEqual(mode, { images: true, source: "typert-descriptor" });
+
+  const proxy = makeExecuteProxy(ATTACHMENTS_RENAMED_EXECUTE_DESCRIPTOR);
+  const outcome = await sparkleRequest(mode, proxy, SESSION, "/sparkle abc");
+  assert.equal(proxy.calls[0].length, 3, "改名后的 current 线协议仍传 (sessionId, cmd, []) 三个参数");
+  assert.deepEqual(proxy.calls[0][2], []);
+  assert.equal(outcome.ok, true);
+  assert.equal(outcome.value.result.kind, "success");
+
+  // 旧判定的失败形态：2 参调用被代理拒绝（真实 gateway 的参数校验在
+  // carrier try 之外直接 throw，调用方以 rejection 收到 → "润色调用失败"）
+  await assert.rejects(
+    () => makeExecuteProxy(ATTACHMENTS_RENAMED_EXECUTE_DESCRIPTOR)(SESSION, "/sparkle abc"),
+    /got 2/,
+  );
 });
 
 test("模式缓存：重复调用不重复探测", () => {

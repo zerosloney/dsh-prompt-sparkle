@@ -11,7 +11,7 @@
 //   DSH_HARNESS_DIR=<dir> DSH_HARNESS_FAMILY=<legacy-rc7|current> \
 //   node --test tests/compat/compat-install-load.test.mjs
 
-import test from "node:test";
+import nodeTest from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -26,10 +26,20 @@ const COMPAT_ENV_ROOT = join(PLUGIN_ROOT, "..", "compat-env");
 
 const harnessDir = process.env.DSH_HARNESS_DIR;
 const expectedFamily = process.env.DSH_HARNESS_FAMILY ?? "unknown";
-assert.ok(harnessDir && existsSync(harnessDir), "需要 DSH_HARNESS_DIR");
+// npm test 统一入口也会加载本文件：未设置 DSH_HARNESS_DIR 时整套登记为
+// skip（真实执行由 scripts/run-compat-tests.mjs 编排）；设置了但目录缺失
+// 保持硬失败——编排器配错不能静默跳过。
+const harnessReady = harnessDir !== undefined && existsSync(harnessDir);
+if (harnessDir !== undefined && !harnessReady) {
+  throw new Error(`DSH_HARNESS_DIR 不存在：${harnessDir}`);
+}
+const test = Object.assign(
+  harnessReady ? nodeTest : (...args) => nodeTest.skip(...args),
+  { before: nodeTest.before, after: nodeTest.after },
+);
 
 const versionTag = expectedFamily === "legacy-rc7" ? "0.1.0-rc.7" : "0.1.1-rc.2";
-const dshBin = join(harnessDir, "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js");
+const dshBin = harnessReady ? join(harnessDir, "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js") : "";
 const dshHome = join(COMPAT_ENV_ROOT, `home-${versionTag}`);
 const profileDir = join(dshHome, "profiles", "headless");
 const markerFile = join(tmpdir(), `sparkle-probe-marker-${versionTag}.json`);
@@ -50,6 +60,7 @@ function runDsh(args, options = {}) {
 }
 
 test.before(() => {
+  if (!harnessReady) return;
   rmSync(dshHome, { recursive: true, force: true });
   rmSync(markerFile, { force: true });
   mkdirSync(join(harnessDir, "node_modules"), { recursive: true });
