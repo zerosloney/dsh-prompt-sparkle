@@ -19,7 +19,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { existsSync, globSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, globSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -35,8 +35,11 @@ const skipInstall = args.includes("--skip-install");
 const withRegression = !args.includes("--no-regression");
 
 const ENVIRONMENTS = [
-  { key: "rc7", version: "0.1.0-rc.7", family: "legacy-rc7", harnessDir: join(COMPAT_ENV_ROOT, "harness-0.1.0-rc.7") },
-  { key: "current", version: "0.1.1-rc.2", family: "current", harnessDir: join(COMPAT_ENV_ROOT, "harness-0.1.1-rc.2") },
+  // pins：安装脚本白名单之外、必须精确锁定的版本——@deepseek-ai/cordis 的
+  // ^4.0.1 范围会被全新安装顶到 4.0.2，两个家族的环境核实测试都要求 4.0.1
+  // （宿主发布列车当时的解析结果）。
+  { key: "rc7", version: "0.1.0-rc.7", family: "legacy-rc7", pins: ["@deepseek-ai/cordis@4.0.1"], harnessDir: join(COMPAT_ENV_ROOT, "harness-0.1.0-rc.7") },
+  { key: "current", version: "0.1.1-rc.2", family: "current", pins: ["@deepseek-ai/cordis@4.0.1"], harnessDir: join(COMPAT_ENV_ROOT, "harness-0.1.1-rc.2") },
 ].filter((env) => envFlag === "all" || envFlag === env.key);
 
 if (ENVIRONMENTS.length === 0) {
@@ -60,9 +63,18 @@ function record(entry) {
 function run(command, argsList, options = {}) {
   const isCmd = process.platform === "win32" && (command === "npm" || command === "pnpm" || command === "npx");
   const actualCmd = isCmd ? `${command}.cmd` : command;
+  const env = { ...process.env, ...(options.env ?? {}) };
+  // 本编排器通常经 `npm run` 拉起：npm 会把自身全部配置以 npm_config_* 环境变量
+  // 注入子进程，其中 npm_config_allow_scripts 会被下游 npm 视为 CLI/env 层策略
+  // （RFC npm/rfcs#868），对项目级 install 直接抛 EALLOWSCRIPTS。剥掉它，让子
+  // npm 回落到 package.json allowScripts / .npmrc 层判定（npm < 11.19 无此
+  // 特性，该字段只是无害的未知配置）。
+  for (const key of Object.keys(env)) {
+    if (/^npm_config_allow_scripts$/i.test(key)) delete env[key];
+  }
   const result = spawnSync(actualCmd, argsList, {
     cwd: options.cwd ?? PLUGIN_ROOT,
-    env: { ...process.env, ...(options.env ?? {}) },
+    env,
     encoding: "utf8",
     timeout: options.timeout ?? 300_000,
     maxBuffer: 64 * 1024 * 1024,
@@ -171,25 +183,36 @@ function runTestFile(file, env) {
   return { cases, status: result.status };
 }
 
-/** 确保隔离 harness 环境已安装。 */
+/** 确保隔离 harness 环境已供给（幂等：供给脚本带 compat 标记时跳过）。
+ *  安装/钉版/补 peer 的全部细节在 scripts/setup-compat-env.mjs。 */
 function ensureHarnessEnv(env) {
-  if (existsSync(join(env.harnessDir, "node_modules", "@deepseek-ai", "dsh"))) return;
+  const pkgPath = join(env.harnessDir, "package.json");
+  if (existsSync(pkgPath)) {
+    try {
+      const marker = JSON.parse(readFileSync(pkgPath, "utf8")).compat;
+      if (marker?.provisioned === env.version && marker?.family === env.family) return;
+    } catch { /* 标记缺失或损坏：重新供给 */ }
+  }
   if (skipInstall) {
     console.error(`环境缺失且 --skip-install：${env.harnessDir}`);
     process.exit(2);
   }
-  console.log(`\n[env] 安装 @deepseek-ai/dsh@${env.version} → ${env.harnessDir}（首次较慢）`);
-  mkdirSync(env.harnessDir, { recursive: true });
-  writeFileSync(join(env.harnessDir, "package.json"), JSON.stringify({ name: `harness-${env.key}-env`, private: true }), "utf8");
-  const result = run("npm", ["install", `@deepseek-ai/dsh@${env.version}`, "--no-audit", "--no-fund"], {
-    cwd: env.harnessDir,
-    timeout: 600_000,
+  console.log(`\n[env] 供给 @deepseek-ai/dsh@${env.version} → ${env.harnessDir}（首次较慢）`);
+  const result = run(process.execPath, [
+    join(HERE, "setup-compat-env.mjs"),
+    "--dir", env.harnessDir,
+    "--version", env.version,
+    "--family", env.family,
+    ...(env.pins ?? []).flatMap((pin) => ["--pin", pin]),
+  ], {
+    timeout: 1_800_000,
   });
   if (result.status !== 0) {
-    console.error(`@deepseek-ai/dsh@${env.version} 安装失败：\n${result.stderr}`);
+    const cause = result.error ? String(result.error) : result.signal ? `信号终止：${result.signal}` : "退出码非零";
+    console.error(`环境供给失败（${cause}）：\n${result.stderr || result.stdout}`);
     process.exit(1);
   }
-  console.log(`[env] ${env.version} 安装完成`);
+  console.log(`[env] ${env.version} 供给完成`);
 }
 
 // ---------- 执行 ----------

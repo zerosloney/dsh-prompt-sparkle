@@ -48,7 +48,7 @@ assert.ok(Array.isArray(bundleExports.inject), "工厂应导出 inject");
 
 const wire = global.window.__sparkleTest;
 assert.ok(wire, "测试钩子应暴露 __sparkleTest");
-const { getExecuteModeSync, probeExecuteMode, sparkleRequest, resetExecuteModeCache } = wire;
+const { getExecuteModeSync, probeExecuteMode, sparkleRequest, fetchModelCatalog, resetExecuteModeCache } = wire;
 
 // ---------- 忠实复刻 dsh 客户端代理的 execute ----------
 // 参照 dsh-0.1.0-rc.7 / 0.1.1-rc.2 packages/api/gateway/src/client/index.ts#invoke：
@@ -259,4 +259,62 @@ test("端到端：current proxy 下 3 参调用成功（现状保持）", async 
   const ok = await proxy(SESSION, "/sparkle abc", []);
   assert.equal(ok.ok, true);
   assert.equal(ok.value.result.kind, "success");
+});
+
+// ---------- 宿主模型目录拉取（fetchModelCatalog） ----------
+
+/** 复刻 vendor/cordis/src/reflect.ts 的 get trap：ctx 上未声明的服务属性
+ *  访问即抛 cannot get property "<name>" without inject；ctx.get(name)
+ *  是唯一的 optional 服务读取途径（未提供返回 undefined 不抛错）。宿主
+ *  gateway 把 remote.<ns> 注册为独立服务，ctx.remote 对象上没有嵌套属性。 */
+function makeCordisLikeCtx(services) {
+  const own = {
+    get: (name) => (name in services ? services[name] : undefined),
+  };
+  return new Proxy(own, {
+    get(target, prop) {
+      if (prop in target) return target[prop];
+      throw new Error(`cannot get property "${String(prop)}" without inject`);
+    },
+  });
+}
+
+/** 宿主 ModelCatalog 形状（deepseek-harness packages/api/session-controller/src/types.ts）。 */
+const HOST_CATALOG_GROUPS = [
+  { id: "deepseek", name: "DeepSeek", models: [{ id: "deepseek-v4-flash", name: "DeepSeek-V4-Flash" }] },
+];
+
+test("模型目录：经 ctx.get('remote.session') 拉取宿主 modelCatalog（v0.1.5 修复锁定）", async () => {
+  // 修复前：直接属性访问 ctx.remote.session 被 cordis 代理拒绝（抛
+  // cannot get property "session" without inject 被吞掉），目录永远拉不到，
+  // 下拉只显示内置默认组。
+  const ctx = makeCordisLikeCtx({
+    "remote.session": {
+      modelCatalog: () => Promise.resolve({ ok: true, value: { groups: HOST_CATALOG_GROUPS } }),
+    },
+  });
+  const groups = await fetchModelCatalog(ctx);
+  assert.deepEqual(groups, HOST_CATALOG_GROUPS, "应原样回传宿主 groups（renderGroups 按 id/name/models 解析）");
+});
+
+test("模型目录：老宿主（无 remote.session 服务）返回 null 保持默认组", async () => {
+  assert.equal(await fetchModelCatalog(makeCordisLikeCtx({})), null);
+  assert.equal(await fetchModelCatalog({}), null, "宿主无 ctx.get API 时也不抛错");
+});
+
+test("模型目录：modelCatalog 返回 ok:false / 空目录 / reject 都降级为 null", async () => {
+  const failing = makeCordisLikeCtx({
+    "remote.session": { modelCatalog: () => Promise.resolve({ ok: false, error: { code: "x", message: "y" } }) },
+  });
+  assert.equal(await fetchModelCatalog(failing), null);
+
+  const empty = makeCordisLikeCtx({
+    "remote.session": { modelCatalog: () => Promise.resolve({ ok: true, value: { groups: [] } }) },
+  });
+  assert.equal(await fetchModelCatalog(empty), null);
+
+  const rejecting = makeCordisLikeCtx({
+    "remote.session": { modelCatalog: () => Promise.reject(new Error("transport down")) },
+  });
+  assert.equal(await fetchModelCatalog(rejecting), null);
 });
