@@ -48,7 +48,7 @@ assert.ok(Array.isArray(bundleExports.inject), "工厂应导出 inject");
 
 const wire = global.window.__sparkleTest;
 assert.ok(wire, "测试钩子应暴露 __sparkleTest");
-const { getExecuteModeSync, probeExecuteMode, sparkleRequest, fetchModelCatalog, resetExecuteModeCache } = wire;
+const { getExecuteModeSync, probeExecuteMode, sparkleRequest, fetchModelCatalog, currentSessionId, resetExecuteModeCache } = wire;
 
 // ---------- 忠实复刻 dsh 客户端代理的 execute ----------
 // 参照 dsh-0.1.0-rc.7 / 0.1.1-rc.2 packages/api/gateway/src/client/index.ts#invoke：
@@ -259,6 +259,64 @@ test("端到端：current proxy 下 3 参调用成功（现状保持）", async 
   const ok = await proxy(SESSION, "/sparkle abc", []);
   assert.equal(ok.ok, true);
   assert.equal(ok.value.result.kind, "success");
+});
+
+// ---------- 当前会话 id（currentSessionId，跨代际） ----------
+// 0.1.7 回归背景：会话列表快照从 { current, ... } 改为 retention 模型
+// （current 与 selection 一并被移除），旧取法恒返回 undefined → 按钮
+// 永远灰着不点亮。
+
+/** 复刻 dsh <= 0.1.6 的 list 快照形状（含 current 字段）。 */
+function legacyListSnapshot(current) {
+  return { ids: [], byId: {}, current, phase: "pending", subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined };
+}
+
+/** 复刻 dsh 0.1.7+ 的 list 快照形状（projectList：retainedBy 随条目下发）。 */
+function retentionListSnapshot(byId) {
+  return { ids: Object.keys(byId), byId, phase: "pending", projectionsBySession: {} };
+}
+
+test("会话 id：<= 0.1.6 list 快照 current 字符串直接命中", () => {
+  const ctx = { sessions: { list: { getSnapshot: () => legacyListSnapshot("session-cur") } } };
+  assert.equal(currentSessionId(ctx), "session-cur");
+});
+
+test("会话 id：0.1.7+ current/selection 被移除，按 retainedBy.mainView 取主视图会话", () => {
+  // 取法与宿主自身一致：UiSession.publishMain 与各 UI 包的
+  // useSessions((state) => Object.values(state.byId).find((s) => (s.retainedBy.mainView ?? 0) > 0)?.id)
+  const ctx = { sessions: { list: { getSnapshot: () => retentionListSnapshot({
+    "s-idle": { id: "s-idle", retainedBy: {} },
+    "s-main": { id: "s-main", retainedBy: { mainView: 1 } },
+  }) } } };
+  assert.equal(currentSessionId(ctx), "s-main");
+});
+
+test("会话 id：0.1.7+ 无主视图 retention（hero 空态）返回 undefined", () => {
+  const ctx = { sessions: { list: { getSnapshot: () => retentionListSnapshot({
+    "s-1": { id: "s-1", retainedBy: {} },
+  }) } } };
+  assert.equal(currentSessionId(ctx), undefined);
+});
+
+test("会话 id：current 命中时不做 retention 扫描（优先级锁定）", () => {
+  const ctx = { sessions: { list: { getSnapshot: () => ({
+    ids: ["a"], byId: { a: { id: "a", retainedBy: { mainView: 2 } } }, current: "session-cur",
+  }) } } };
+  assert.equal(currentSessionId(ctx), "session-cur");
+});
+
+test("会话 id：selection 快照兜底（更早宿主）", () => {
+  const ctx = { sessions: { selection: { getSnapshot: () => ({ sessionId: "session-sel" }) } } };
+  assert.equal(currentSessionId(ctx), "session-sel");
+});
+
+test("会话 id：sessions 缺失 / 快照抛错 / 非法形状都不抛错返回 undefined", () => {
+  assert.equal(currentSessionId({}), undefined);
+  assert.equal(currentSessionId({ sessions: null }), undefined);
+  const throwing = { sessions: { list: { getSnapshot: () => { throw new Error("store down"); } } } };
+  assert.equal(currentSessionId(throwing), undefined);
+  const malformed = { sessions: { list: { getSnapshot: () => ({ byId: { a: null }, current: null }) } } };
+  assert.equal(currentSessionId(malformed), undefined);
 });
 
 // ---------- 宿主模型目录拉取（fetchModelCatalog） ----------
