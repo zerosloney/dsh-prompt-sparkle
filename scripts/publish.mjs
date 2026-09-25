@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * dsh-prompt-sparkle 本机发布脚本（替代已删除的 .github/workflows/publish.yml）。
+ * dsh-prompt-sparkle 本机发布脚本（.github/workflows/publish.yml 的本机等价路径）。
  *
- * 原 CI 流程：推送 v* tag 后在 ubuntu 上 npm ci → npm test → npm publish。
- * 现改为本机一步执行：
+ * GitHub Actions 流程：推送 v* tag 后在 ubuntu 上 npm ci → npm test → npm publish
+ * （版本已存在时自动跳过）。本脚本在本机一步执行同样的流程：
  *   npm test（tsc 构建 + node --test）→ 版本递增 → npm publish --access public
  *   → git tag v<version> + 版本号提交（--no-git 可跳过，非 git 仓库自动跳过）。
  *

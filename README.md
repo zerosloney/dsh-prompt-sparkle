@@ -62,6 +62,14 @@ pnpm dsh --profile web
 4. 开启 Diff 预览时先在浮层对照确认，`Enter` 采纳；未开启则直接写回输入框。
 5. 不满意？点 Toast 上的 `[ 撤销 ]` 或按 `Ctrl/Cmd+Z` 一键还原原稿。
 
+## 发布
+
+- **GitHub Actions**：更新 `package.json` 版本并提交，然后 `git tag v0.1.x && git push --tags`，
+  工作流自动完成 `npm ci → npm test → npm publish`（需在仓库 Secrets 中配置 `NPM_TOKEN`；
+  该版本已发布过时自动跳过，与本地发布不冲突）。
+- **本机脚本**：`npm run publish:local [-- --minor|--major|<version>] [--dry-run]`，
+  一步完成测试 → 版本递增 → 发布 → git tag/commit，用法见 `scripts/publish.mjs` 头部注释。
+
 ## 技术实现（简）
 
 插件分两半：node 半边以 Cordis Service 形态注册 `/sparkle` 命令，复用宿主的 LLM
