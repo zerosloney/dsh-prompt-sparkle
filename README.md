@@ -1,58 +1,52 @@
 # dsh-prompt-sparkle
 
-dsh web UI 插件：对话框提示词润色。在 composer 工具栏的模型选择器旁挂一个
-sparkle 图标按钮（快捷键 `Ctrl/Cmd+Shift+E`），把当前草稿交给**当前会话选定的模型**重写为
-更清晰、更直接的提示词，结果写回输入框；`Ctrl/Cmd+Z` 可撤销回原草稿。
+deepseek-harness（dsh）web UI 插件：**对话框提示词润色**。在输入框工具栏的模型选择器旁
+挂一个 ✨ 图标按钮，一键把当前草稿重写为更清晰、更直接的提示词，结果写回输入框；
+`Ctrl/Cmd+Z`（或 Toast 上的撤销按钮）可随时还原。
 
-## 工作原理
+润色默认使用**当前会话选定的模型**（也可在设置中改用独立的极速模型），整个过程是一次
+独立的辅助调用——不进入对话上下文，不污染会话记录。
 
-```
-[sparkle 按钮 / Ctrl+Shift+E]
-        │ 读 composer 草稿（textarea 或 contenteditable）
-        ▼
-浏览器半边 lib/client.js（vanilla DOM）
-        │ ctx.remote.commands.execute(sessionId, '/sparkle <base64>', [])
-        ▼
-host 半边 lib/index.js（Cordis Service）
-        │ /sparkle 命令（recordInput: false，草稿不落会话日志）
-        │ invocation.agent.options → 当前会话的 provider/model
-        │ ctx.llm.stream({provider, model, system: 重写指令, maxTokens: 1024})
-        │ BlockAssembler 组装纯文本
-        ▼
-CommandResult {kind:'success', text} 原路返回浏览器
-        │ 原生 value setter + input 事件 → InputBar.onChange → keyboard.setDraft
-        ▼
-草稿被替换；机器撤销栈自动记录本次替换
-```
+## 功能一览
 
-- **模型路由与极速通道 (Fast Route)**：默认复用当前会话选定的模型；也可在设置中指定独立极速模型（如 `deepseek-v4-flash`），秒级返回，彻底避免思考模型的等待延迟。
-- **集成 UI 偏好设置面板 (Settings Modal)**：
-  - 右键菜单一键呼出 `⚙️ 偏好设置...`，提供原生深色毛玻璃交互面板。
-  - 支持即时调节默认风格、启用极速路由、微调采样温度（0.0~1.0 滑块）、Token 上限、开关 Diff 预览与自动复制、定制系统提示词。
-- **差异对比预览 (Diff Preview)**：
-  - 可选开启 Diff 对照视窗，并排呈现【原草稿内容】与【✨ 润色后提示词】。
-  - 支持 `[ 仅复制 ]`、`[ 放弃 ]` 与 `[ ✔ 采纳写回 (Enter) ]`。
-- **多风格预设与快捷切换**：
-  - **左键点击**：执行当前选定风格的润色。
-  - **右键点击**：弹出精致的预设菜单，支持自由切换 `⚡ 默认精炼`、`🧱 结构化模版`、`🌐 英文优化`、`🧠 思维链引导` 并在 `localStorage` 中记忆用户选择。
-  - **动态 Tooltip**：悬浮提示当前选中的风格与快捷键（如 `润色提示词 [⚡ 默认精炼] (右键设置与风格 · Ctrl/Cmd+Shift+E)`）。
-- **选区局部润色**：当用户在输入框中高亮选中部分文字时，仅将该选区内容发送润色并替换原选区，未选中文本时默认润色全部草稿。
-- **视觉反馈与交互撤销**：润色过程中按钮呈现加载旋转动效，Tooltip 自适应切换；润色成功后弹出交互式 Toast，附带 `[ 撤销 ]` 快捷按钮，点击一键还原，同时原生 `Ctrl/Cmd+Z` 也完全支持。
-- **不污染对话**：润色是一次独立辅助流，不进模型上下文；命令只留
-  `command/run` + `command/done` 两条 log-only 记录（transcript 显示为命令
-  卡片），且 `recordInput: false` 保证草稿 base64 不落日志；
-  注意 `command/done` 会完整记录润色结果全文。
-- **提示词工程防退化**：严格保护占位符变量（如 `{{var}}`）、代码块与语言一致性，锁定低温度（默认 0.3）以避免幻觉发散与冗余思维链。
-- **插件配置 Schema**：通过 `@deepseek-ai/schemastery` 提供结构化配置项（`temperature`、`maxTokens`、`timeoutMs`、`defaultStyle`、`customPrompt`、`fastModel`），支持在 host 设置面板中全局自定义。
-- **只读保护与焦点守卫**：会话处于 `submitting/adjudicating/inert` 相位时按钮禁用；快捷键具备活动焦点校验（`document.activeElement`）与拼音输入法（IME）保护，避免全局夺焦。
+- **一键润色**：左键点击 ✨ 按钮或按 `Ctrl/Cmd+Shift+E`，润色期间按钮呈现加载动效。
+- **选区局部润色**：高亮选中部分文字时只润色选中内容，其余保持不变。
+- **四种风格预设**（右键按钮即可切换，选择会被记住）：
+
+  | 风格 | 说明 |
+  |------|------|
+  | ⚡ 默认精炼 | 去芜存菁，清晰直接 |
+  | 🧱 结构化模版 | 角色 / 任务 / 背景 / 约束 / 输出格式 |
+  | 🌐 英文优化 | 地道专业的英文提示词 |
+  | 🧠 思维链引导 | 引导模型逐步推理与验证 |
+
+- **Diff 对照预览**（可选）：润色后先在浮层并排展示原稿与结果，支持
+  `[ 仅复制 ]` / `[ 放弃 ]` / `[ ✔ 采纳写回 (Enter) ]`，`Esc` 关闭。
+- **偏好设置面板**（右键按钮 → `⚙️ 偏好设置...`）：
+  - 界面主题：浅色 / 深色 / 自动跟随宿主；
+  - 默认润色风格；
+  - 极速模型路由：从宿主已配置的模型中下拉选择（或手动填写 provider / model），
+    润色不再跟随会话的思考模型，秒级返回；
+  - 采样温度（0–1 滑块）与 Token 上限；
+  - Diff 预览、自动复制到剪贴板开关；
+  - 自定义系统提示词（填写后优先于风格预设）。
+- **可撤销**：润色成功后 Toast 附带 `[ 撤销 ]` 快捷按钮，原生 `Ctrl/Cmd+Z` 同样有效
+  （写回会被输入框自身的撤销栈记录）。
+- **不打扰对话**：润色结果只写回输入框，不发给对话模型；会话日志只留命令起止两条
+  记录，草稿原文不落日志（`command/done` 会记录润色结果全文）。
+- **细节体验**：会话忙碌（生成中）时按钮自动禁用；快捷键带焦点校验与输入法（IME）
+  保护，不会全局夺焦。
 
 ## 安装
+
+要求 Node.js ≥ 22.19，宿主为 deepseek-harness web（0.1.0-rc.7 ~ 0.1.7，插件自动
+适配，详见 [COMPATIBILITY.md](COMPATIBILITY.md)）。
 
 ```sh
 # 在 deepseek-harness 仓库内执行（dsh CLI 从源码运行）
 
 # 从本地目录安装（开发迭代）
-pnpm dsh plugin --profile web add E:/Demo/cli-tools/dsh-prompt-sparkle
+pnpm dsh plugin --profile web add /path/to/dsh-prompt-sparkle
 
 # 插件集在启动时扫描，需重启 web 服务生效
 pnpm dsh --profile web
@@ -60,49 +54,35 @@ pnpm dsh --profile web
 
 卸载：`pnpm dsh plugin --profile web remove dsh-prompt-sparkle`。
 
-## 结构
+## 使用
+
+1. 重启 dsh web 服务后，输入框工具栏模型选择器旁会出现 ✨ 按钮。
+2. 在输入框写好草稿（也可以只选中其中一段）。
+3. 左键 ✨ 或按 `Ctrl/Cmd+Shift+E` 润色；右键 ✨ 切换风格、打开偏好设置。
+4. 开启 Diff 预览时先在浮层对照确认，`Enter` 采纳；未开启则直接写回输入框。
+5. 不满意？点 Toast 上的 `[ 撤销 ]` 或按 `Ctrl/Cmd+Z` 一键还原原稿。
+
+## 技术实现（简）
+
+插件分两半：node 半边以 Cordis Service 形态注册 `/sparkle` 命令，复用宿主的 LLM
+流式接口跑一次独立润色，草稿以 base64 走命令参数、结果原路返回浏览器，不落会话
+日志；浏览器半边是手写的 vanilla JS（零依赖、无构建步骤），负责按钮、菜单、设置
+面板与草稿写回，同时适配 textarea 与 Lexical 富文本两种输入框，并按宿主版本自动
+选择调用形态。插件自身通过 Schemastery 暴露结构化配置（`temperature` /
+`maxTokens` / `timeoutMs` / `defaultStyle` / `customPrompt` / `fastModel`），可在
+宿主设置面板全局定制。多版本兼容的适配细节见
+[COMPATIBILITY.md](COMPATIBILITY.md)。
+
+## 目录结构
 
 | 文件 | 作用 |
 |------|------|
 | `cordis.patch.yml` | bundle patch：向组合树插入插件行 |
-| `src/index.ts` | node 半边源码：`PromptSparkleService` 注册 `/sparkle` 命令，包装 `ctx.llm.stream` |
-| `lib/index.js` | node 半边构建产物（tsc） |
-| `lib/client.js` | 浏览器半边：`__ModuleLoader__.load` 闭包工厂 bundle，vanilla DOM 实现按钮/快捷键/写回 |
-| `tests/sparkle.test.mjs` | node --test：编解码往返、流组装、命令分支 |
+| `src/index.ts` | node 半边：`/sparkle` 命令注册与润色逻辑（tsc 构建到 `lib/`） |
+| `lib/client.js` | 浏览器半边：按钮 / 菜单 / 设置面板 / 草稿写回（手写 vanilla JS） |
+| `tests/` | 单元测试 + 多版本兼容测试 |
+| `scripts/` | 本机发布脚本与兼容测试编排 |
 
-## 开发
+## License
 
-```sh
-npm install
-npm test        # tsc 构建 + node --test
-```
-
-浏览器半边是手写 vanilla JS（无构建步骤），改完直接重启 web 服务即可。
-
-## 发布（本机）
-
-GitHub Actions 只保留 CI 工作流（`.github/workflows/ci.yml`：push /
-PR 触发，npm ci + 构建 + 测试）；原发布工作流（推送 `v*` tag 后由 CI 构建
-并发布 npm）已移除，发布改为本机脚本一键执行：
-
-```sh
-npm run publish:local                # patch 递增：0.1.2 → 0.1.3
-npm run publish:local -- --minor     # minor 递增
-npm run publish:local -- --major     # major 递增
-npm run publish:local -- 0.2.0       # 显式指定版本
-npm run publish:local -- --no-git    # 跳过 git tag/commit
-npm run publish:local -- --dry-run   # 只测试 + 预览版本，不落盘不发布
-```
-
-执行流程：`npm test`（构建 + 测试）→ 版本号写入 `package.json` →
-`npm publish --access public`（需先 `npm login`）→ 提交版本号变更并打
-`v<version>` tag（以保留原 tag 触发语义；`git push && git push --tags`
-同步远端）。
-
-## 依赖
-
-运行时依赖 npm 发布版 `@deepseek-ai/dsh-llm`（`BlockAssembler` /
-`createUserMessage`）；`cordis` / `dsh-commands` / `dsh-agent` 以 peer 语义
-由宿主提供。浏览器半边零依赖，只依赖 `ui-conversation` 的稳定 DOM 契约：
-`[data-composer-card]`（position:relative 定位上下文）与卡内 textarea 的
-`data-phase` 属性。
+MIT
