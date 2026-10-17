@@ -70,6 +70,19 @@ test("runSparkle 拼接文本块并回传请求参数", async () => {
   assert.equal(options.messages[0].content[0].text, "原始草稿");
 });
 
+test("runSparkle 用一次性 user 输入形状（无 id / source），兼容 0.1.x 与 0.2.x", async () => {
+  const llm = fakeLlm(textScript("x"));
+  await runSparkle(llm, "p", "m", "草稿", SIGNAL);
+  const message = llm.requests[0].messages[0];
+  // dsh 0.2.x 的 GenerateOptions.messages 允许 hand-built one-shot 输入；
+  // 两个版本的 LlmRuntime.forAdapter 都只在 role === "assistant" 时读 source，
+  // 因此 user 消息不带 source 在两个家族都安全（0.1.x 旧代码同样提前返回）。
+  assert.equal(message.source, undefined);
+  assert.equal(message.id, undefined);
+  assert.deepEqual(Object.keys(message).sort(), ["content", "role"]);
+  assert.deepEqual(message.content, [{ type: "text", text: "草稿" }]);
+});
+
 test("runSparkle 把 max-tokens 终止翻成错误", async () => {
   const llm = fakeLlm([
     { type: "block-start", index: 0, blockType: "text" },

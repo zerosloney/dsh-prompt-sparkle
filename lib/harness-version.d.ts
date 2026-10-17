@@ -1,10 +1,15 @@
 /**
  * dsh-prompt-sparkle 兼容层：自动识别 deepseek-harness 版本。
  *
- * 插件同时支持 deepseek-harness 0.1.0-rc.7 与 0.1.1-rc.x（当前线）。
- * 两个版本在插件用到的 host seam 上源码级一致，唯一的行为差异在浏览器
- * 半边的 `commands.execute` wire 协议（0.1.0-rc.8 起新增 `images` 业务
- * 参数）。本模块负责 host 侧的版本探测与“兼容家族”归类，供启动日志与
+ * 插件同时支持 deepseek-harness 0.1.0-rc.7 ~ 0.2.x 全线（peer 范围
+ * `>=0.1.0-rc.7 <0.3.0-0`）。两个 0.1.x 小版本在插件用到的 host seam 上
+ * 源码级一致，唯一的行为差异在浏览器半边的 `commands.execute` wire
+ * 协议（0.1.0-rc.8 起新增附件业务参数，0.1.3-alpha.1 起改名
+ * `submittedAttachments`）。0.2.x 的 host seam 同样一致（commands /
+ * agent.options / llm.stream / BlockAssembler / cordis 全部兼容），
+ * 一次性润色请求改用 `RequestUserInput` 形状（0.2.x 起
+ * `MessageSourceMap` 不再提供共享 `plugin` kind），浏览器侧线协议参数
+ * 个数不变。本模块负责 host 侧的版本探测与"兼容家族"归类，供启动日志与
  * 诊断使用；浏览器半边另有独立的线协议能力探测（见 lib/client.js 的
  * resolveExecuteMode），两者互补。
  *
@@ -15,7 +20,9 @@
 /**
  * 兼容家族：
  * - `legacy-rc7`：execute 线协议为 `(agent, line, signal)`（0.1.0-rc.7）
- * - `current`：execute 线协议为 `(agent, line, images, signal)`（≥0.1.0-rc.8）
+ * - `current`：execute 线协议为 `(agent, line, <attachments>, signal)`
+ *   （≥0.1.0-rc.8，含 0.1.1-rc.x 与 0.2.x；附件参数名 0.1.3-alpha.1 起
+ *   由 `images` 改为 `submittedAttachments`，参数个数不变）
  * - `unknown`：无法解析或版本超出已知范围
  */
 export type HarnessCompatFamily = "legacy-rc7" | "current" | "unknown";

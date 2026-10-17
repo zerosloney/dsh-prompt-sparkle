@@ -22,11 +22,13 @@ test("compareVersions：数字部分比较", () => {
   assert.equal(compareVersions("0.1.1-rc.2", "0.1.0-rc.7"), 1);
   assert.equal(compareVersions("0.1.0-rc.8", "0.1.0-rc.7"), 1);
   assert.equal(compareVersions("0.2.0", "0.1.1-rc.2"), 1);
+  assert.equal(compareVersions("0.2.1-rc.2", "0.2.0-rc.2"), 1);
 });
 
 test("compareVersions：稳定版大于同号 prerelease", () => {
   assert.equal(compareVersions("0.1.1", "0.1.1-rc.2"), 1);
   assert.equal(compareVersions("0.1.1-rc.2", "0.1.1"), -1);
+  assert.equal(compareVersions("0.2.0-0", "0.2.0-rc.2"), -1, "rc.2 > 0（数字段 < 字母段）");
 });
 
 test("compareVersions：prerelease 分段比较（数字段 < 字母段，rc 递增）", () => {
@@ -52,20 +54,29 @@ test("inVersionRange：闭开区间语义", () => {
 
 // ---------- familyOf ----------
 
-test("familyOf：0.1.0-rc.7 归类 legacy-rc7（execute 无 images 参数）", () => {
+test("familyOf：0.1.0-rc.7 归类 legacy-rc7（execute 无附件参数）", () => {
   assert.equal(familyOf("0.1.0-rc.7"), "legacy-rc7");
 });
 
-test("familyOf：0.1.0-rc.8 / 0.1.1-rc.x 归类 current（execute 带 images 参数）", () => {
+test("familyOf：0.1.0-rc.8 / 0.1.1-rc.x 归类 current（execute 带附件参数）", () => {
   assert.equal(familyOf("0.1.0-rc.8"), "current");
   assert.equal(familyOf("0.1.1-rc.1"), "current");
   assert.equal(familyOf("0.1.1-rc.2"), "current");
 });
 
+test("familyOf：0.2.x 全线归类 current（host seam 与 0.1.x 源码级一致）", () => {
+  assert.equal(familyOf("0.2.0-rc.1"), "current");
+  assert.equal(familyOf("0.2.0-rc.2"), "current");
+  assert.equal(familyOf("0.2.1-rc.2"), "current");
+  assert.equal(familyOf("0.2.9"), "current");
+});
+
 test("familyOf：未知/空版本归类 unknown", () => {
   assert.equal(familyOf(""), "unknown");
   assert.equal(familyOf("0.0.1-rc.1"), "unknown");
-  assert.equal(familyOf("0.2.0"), "unknown");
+  assert.equal(familyOf("0.1.0-rc.6"), "unknown");
+  assert.equal(familyOf("0.3.0-rc.1"), "unknown");
+  assert.equal(familyOf("0.3.0"), "unknown");
   assert.equal(familyOf("1.0.0"), "unknown");
 });
 
@@ -74,11 +85,12 @@ test("familyOf：未知/空版本归类 unknown", () => {
 test("detectHarnessVersion：在当前开发环境解析到 dsh 包版本", () => {
   const info = detectHarnessVersion();
   assert.equal(typeof info.family, "string");
-  // 插件 devDependencies 安装的是 0.1.1-rc.2 系列
-  assert.equal(info.packages.commands, "0.1.1-rc.2");
-  assert.equal(info.packages.llm, "0.1.1-rc.2");
-  assert.equal(info.packages.cordis, "4.0.1");
+  // 插件 devDependencies 安装的是 0.2.1-rc.2 系列
+  assert.equal(info.packages.commands, "0.2.1-rc.2");
+  assert.equal(info.packages.llm, "0.2.1-rc.2");
+  assert.equal(info.packages.agent, "0.2.1-rc.2");
   assert.equal(info.family, "current");
+  assert.equal(info.packages.cordis, "4.0.5");
 });
 
 test("resolvePackageVersion：不存在的包返回空字符串（不抛错）", () => {
@@ -89,5 +101,5 @@ test("describeHarness：输出人类可读摘要", () => {
   const info = detectHarnessVersion();
   const text = describeHarness(info);
   assert.match(text, /family=current/);
-  assert.match(text, /commands@0\.1\.1-rc\.2/);
+  assert.match(text, /commands@0\.2\.1-rc\.2/);
 });

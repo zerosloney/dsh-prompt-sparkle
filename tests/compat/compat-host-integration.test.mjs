@@ -4,15 +4,14 @@
 // node_modules）中的【真实】cordis / dsh-commands / dsh-llm / schemastery
 // 组合出最小 Cordis 根，挂载插件后走真实 CommandRuntime.execute 执行
 // /sparkle 命令——验证"插件在目标版本 harness 下可加载、核心润色功能可
-// 调用"这一完成标准。同一文件由 runner 分别在 0.1.0-rc.7 与当前版环境下
-// 执行（DSH_HARNESS_FAMILY 声明期望的兼容家族）。
+// 调用"这一完成标准。同一文件由 runner 分别在 0.1.0-rc.7、0.1.1-rc.2 与
+// 0.2.1-rc.2 环境下执行（DSH_HARNESS_FAMILY 声明期望的兼容家族）。
 //
 // 关键机制：把插件经临时 node_modules 链接目录导入，使插件自身的
 // @deepseek-ai/* import 解析到目标环境的包（而非插件 devDependencies），
 // 保证测试与插件共享同一份包实例。
 // 运行：DSH_HARNESS_DIR=<dir> DSH_HARNESS_FAMILY=<legacy-rc7|current> \
 //        node --test tests/compat/compat-host-integration.test.mjs
-
 import nodeTest from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
@@ -182,15 +181,17 @@ test.after(async () => {
 // ---------- 环境核实 ----------
 
 test("环境版本核实：插件解析到 DSH_HARNESS_DIR 的包版本", () => {
-  assert.equal(resolvedVersions["dsh-commands"].startsWith("0.1."), true);
-  assert.equal(resolvedVersions["dsh-llm"].startsWith("0.1."), true);
-  assert.equal(resolvedVersions.cordis, "4.0.1");
-  // 防止误用插件 devDependencies（0.1.1-rc.2）
+  // 支持 0.1.x（rc.7 / rc.8 / 0.1.1-rc.x）与 0.2.x（0.2.0-rc.x / 0.2.1-rc.x）
+  // 两条 harness 列车；两者在插件用到的 host seam 上源码级一致。
+  assert.match(resolvedVersions["dsh-commands"], /^0\.(1|2)\./, "dsh-commands 应为 0.1.x 或 0.2.x");
+  assert.match(resolvedVersions["dsh-llm"], /^0\.(1|2)\./, "dsh-llm 应为 0.1.x 或 0.2.x");
+  assert.match(resolvedVersions.cordis, /^4\./, "cordis 应为 4.x");
+  // 防止误用插件 devDependencies（0.2.1-rc.2）
   if (expectedFamily === "legacy-rc7") {
     assert.equal(resolvedVersions["dsh-commands"], "0.1.0-rc.7");
     assert.equal(resolvedVersions["dsh-llm"], "0.1.0-rc.7");
   } else if (expectedFamily === "current") {
-    assert.equal(resolvedVersions["dsh-commands"], "0.1.1-rc.2");
+    assert.ok(resolvedVersions["dsh-commands"] !== "0.1.0-rc.7", "current 家族不应是 rc.7");
   }
 });
 

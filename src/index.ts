@@ -9,16 +9,27 @@
  *
  * 浏览器半边（lib/client.js）用 `ctx.remote.commands.execute(sessionId,
  * '/sparkle <base64>', [])` 程序化调用本命令。
+ *
+ * 跨版本兼容（0.1.0-rc.7 ~ 0.2.x）：
+ * - host 侧 seam（commands.register / CommandInvocation / CommandResult /
+ *   agent.options / LlmRuntime.stream / BlockAssembler / cordis Service）
+ *   在 0.1.x 与 0.2.x 源码级一致，无需分支。
+ * - 一次性润色请求的 user 消息用 `RequestUserInput` 形状（仅 role +
+ *   content，无 id、无 source）。dsh 0.2.x 起 `MessageSourceMap` 不再
+ *   提供共享的 `plugin` kind，且 0.2.x 的 GenerateOptions.messages 明确
+ *   允许"hand-built one-shot"输入；两个版本的 LlmRuntime.forAdapter 都
+ *   在 `message.role !== "assistant"` 处提前返回，不会读取 user 消息的
+ *   source，因此该形状在 0.1.x 与 0.2.x 运行时均可安全工作。
  */
 
 import { Context, Service } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import type { CommandResult } from "@deepseek-ai/dsh-commands";
 import type { Agent } from "@deepseek-ai/dsh-agent";
-import { BlockAssembler, createUserMessage } from "@deepseek-ai/dsh-llm";
+import { BlockAssembler } from "@deepseek-ai/dsh-llm";
 import { detectHarnessVersion, describeHarness } from "./harness-version.js";
 export { detectHarnessVersion, describeHarness, familyOf, compareVersions } from "./harness-version.js";
-import type { LlmRuntime, Message } from "@deepseek-ai/dsh-llm";
+import type { LlmRuntime, RequestMessage } from "@deepseek-ai/dsh-llm";
 
 export type SparkleStyle = "standard" | "structured" | "english" | "cot";
 
@@ -136,6 +147,12 @@ function routeOf(agent: Agent): { provider: string; model: string } {
 
 /**
  * 用指定路由跑一次独立的润色流，返回拼接后的纯文本。
+ *
+ * 草稿以 `RequestUserInput` 形状进 request（仅 role + content）：这是
+ * dsh 0.2.x 为"hand-built one-shot"显式设计的形状，0.2.x 起
+ * `MessageSourceMap` 不再有共享 `plugin` kind；0.1.x 的
+ * `LlmRuntime.forAdapter` 也只在 `message.role === "assistant"` 时读
+ * source，故同一形状跨 0.1.x / 0.2.x 均安全。
  */
 export async function runSparkle(
   llm: Pick<LlmRuntime, "stream">,
@@ -153,11 +170,8 @@ export async function runSparkle(
   const temperature = options.temperature ?? 0.3;
   const maxTokens = options.maxTokens ?? SPARKLE_MAX_TOKENS;
 
-  const messages: Message[] = [
-    createUserMessage({
-      content: [{ type: "text", text: draft }],
-      source: { kind: "plugin", plugin: "dsh-prompt-sparkle" },
-    }),
+  const messages: RequestMessage[] = [
+    { role: "user", content: [{ type: "text", text: draft }] },
   ];
   const assembler = new BlockAssembler();
   for await (const chunk of llm.stream({

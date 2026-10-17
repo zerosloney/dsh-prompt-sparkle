@@ -16,7 +16,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -38,7 +38,12 @@ const test = Object.assign(
   { before: nodeTest.before, after: nodeTest.after },
 );
 
-const versionTag = expectedFamily === "legacy-rc7" ? "0.1.0-rc.7" : "0.1.1-rc.2";
+// 版本标签：从环境目录名推导（harness-0.1.0-rc.7 / harness-0.1.1-rc.2 /
+// harness-0.2.1-rc.2），避免多个 current 家族的环境共用一个 DSH_HOME 而
+// 互相串味；family 只作为兜底。
+const versionTag = harnessReady
+  ? (basename(harnessDir).replace(/^harness-/, "") || (expectedFamily === "legacy-rc7" ? "0.1.0-rc.7" : "0.1.1-rc.2"))
+  : "";
 const dshBin = harnessReady ? join(harnessDir, "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js") : "";
 const dshHome = join(COMPAT_ENV_ROOT, `home-${versionTag}`);
 const profileDir = join(dshHome, "profiles", "headless");

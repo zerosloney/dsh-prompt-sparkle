@@ -97,6 +97,24 @@ const ATTACHMENTS_RENAMED_EXECUTE_DESCRIPTOR = {
   cancellation: { parameter: "signal" },
 };
 
+/** dsh 0.2.x 描述符（0.2.0-rc.x / 0.2.1-rc.2 实测）：
+ *  execute(agentId, line, submittedAttachments, signal) —— 与 0.1.3+ 的
+ *  业务参数完全一致（第三参仍叫 submittedAttachments），唯一差别是 agent
+ *  lookup 多了 resource: "session" 标注（0.2.0-rc.2 起 AgentRegistry 的
+ *  typert.lookups.register / contexts.registerHost 都加了该字段）。
+ *  该字段只影响 host 侧 lookup 解析，不改变 json 业务参数计数，
+ *  因此兼容层的计数判定锚天然免疫。 */
+const V02_EXECUTE_DESCRIPTOR = {
+  namespace: "commands",
+  method: "execute",
+  parameters: [
+    { name: "agent", wire: "agentId", source: "lookup", resource: "session" },
+    { name: "line", wire: "line", source: "json" },
+    { name: "submittedAttachments", wire: "submittedAttachments", source: "json" },
+  ],
+  cancellation: { parameter: "signal" },
+};
+
 function makeExecuteProxy(descriptor) {
   const calls = [];
   const proxy = function execute(...values) {
@@ -194,6 +212,22 @@ test("dsh 0.1.3+：附件参数改名 submittedAttachments 仍判 current（回�
     () => makeExecuteProxy(ATTACHMENTS_RENAMED_EXECUTE_DESCRIPTOR)(SESSION, "/sparkle abc"),
     /got 2/,
   );
+});
+
+test("dsh 0.2.x：execute 描述符与 0.1.3+ 同形（submittedAttachments + lookup 带 resource）", async () => {
+  // 0.2.1-rc.2 实测：业务参数仍是 line + submittedAttachments（2 个 json），
+  // agent lookup 多了 resource: "session"。计数锚对此免疫 → current 模式。
+  resetExecuteModeCache();
+  const ctx = makeCtx(null, makeTypert(V02_EXECUTE_DESCRIPTOR));
+  const mode = getExecuteModeSync(ctx);
+  assert.deepEqual(mode, { images: true, source: "typert-descriptor" });
+
+  const proxy = makeExecuteProxy(V02_EXECUTE_DESCRIPTOR);
+  const outcome = await sparkleRequest(mode, proxy, SESSION, "/sparkle abc");
+  assert.equal(proxy.calls[0].length, 3, "0.2.x 线协议仍是 (sessionId, cmd, []) 三个参数");
+  assert.deepEqual(proxy.calls[0][2], [], "附件参数传空数组（润色不带附件）");
+  assert.equal(outcome.ok, true);
+  assert.equal(outcome.value.result.kind, "success");
 });
 
 test("模式缓存：重复调用不重复探测", () => {

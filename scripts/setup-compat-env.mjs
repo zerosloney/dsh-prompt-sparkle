@@ -181,16 +181,38 @@ if (family === "legacy-rc7") {
 // 3. 补齐 --legacy-peer-deps 跳过的 peer。范围并入 package.json 再无参安装：
 //    react 的 `^16 || ^17 || ...` 之类经 cmd 命令行传参会被当作 shell 管道
 //    拆掉，JSON 清单则不受影响；钉版依赖不受补装顶版。
+//
+// 0.2.x 列车的树里存在"声明了但注册表查无此版本"的 peer（例如
+// `@deepseek-ai/cordis-plugin-group@~1.0.5`——该列车实际发的是 1.0.4），
+// 整批补装会因一个不可满足的范围整体 ETARGET 失败。因此改为逐个探测：
+// 只补注册表确实存在的版本，不可满足的范围记入 warnings 后跳过
+// （这些 peer 对插件的 host seam 测试无用：测试只用 cordis /
+// dsh-commands / dsh-agent / dsh-llm / schemastery）。
 const missing = scanMissingPeers();
+const warnings = [];
 if (missing.length > 0) {
   const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
+  const installable = [];
   for (const spec of missing) {
     const at = spec.indexOf("@", 1);
-    pkg.dependencies[at === -1 ? spec : spec.slice(0, at)] = at === -1 ? "*" : spec.slice(at + 1);
+    const name = at === -1 ? spec : spec.slice(0, at);
+    const range = at === -1 ? "*" : spec.slice(at + 1);
+    const probe = npmCmd(["view", `${name}@${range}`, "version", "--silent"], { timeout: 60_000 });
+    if (probe.status !== 0) {
+      warnings.push(`${name}@${range}（注册表无满足版本，跳过）`);
+      continue;
+    }
+    pkg.dependencies[name] = range;
+    installable.push(spec);
   }
-  writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n", "utf8");
-  npmInstall([], `补装 ${missing.length} 个缺失 peer`);
+  if (installable.length > 0) {
+    writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n", "utf8");
+    npmInstall([], `补装 ${installable.length} 个缺失 peer`);
+  }
 }
 
 writeMarker();
+for (const warning of warnings) {
+  console.warn(`[setup-compat-env] 警告：跳过不可满足的 peer ${warning}`);
+}
 console.log(`[setup-compat-env] ${basename(envDir)} 供给完成`);

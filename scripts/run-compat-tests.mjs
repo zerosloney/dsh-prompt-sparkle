@@ -2,8 +2,8 @@
 /**
  * dsh-prompt-sparkle 兼容性测试编排器。
  *
- * 在两个隔离 harness 环境（deepseek-harness 0.1.0-rc.7 与当前版
- * 0.1.1-rc.2）下依次运行：
+ * 在两个隔离 harness 环境（deepseek-harness 0.1.0-rc.7 / 0.1.1-rc.2 /
+ * 0.2.1-rc.2）下依次运行：
  *   1. 回归基线：npm run build + 原有功能测试（tests/*.test.mjs）
  *   2. 版本识别模块测试（compat-version）
  *   3. peer 依赖范围测试（compat-peer-ranges）
@@ -15,7 +15,7 @@
  * 控制台摘要与 Markdown 报告（tests/compat/reports/report-<ts>.md）。
  *
  * 用法：
- *   node scripts/run-compat-tests.mjs [--env rc7|current|all] [--skip-install] [--no-regression]
+ *   node scripts/run-compat-tests.mjs [--env rc7|current|v02|all] [--skip-install] [--no-regression]
  */
 
 import { spawnSync } from "node:child_process";
@@ -40,10 +40,16 @@ const ENVIRONMENTS = [
   // （宿主发布列车当时的解析结果）。
   { key: "rc7", version: "0.1.0-rc.7", family: "legacy-rc7", pins: ["@deepseek-ai/cordis@4.0.1"], harnessDir: join(COMPAT_ENV_ROOT, "harness-0.1.0-rc.7") },
   { key: "current", version: "0.1.1-rc.2", family: "current", pins: ["@deepseek-ai/cordis@4.0.1"], harnessDir: join(COMPAT_ENV_ROOT, "harness-0.1.1-rc.2") },
+  // 0.2.x 列车：host seam 与 0.1.x 源码级一致，但 dsh-commands 的
+  // commands.execute 第三参数由 `images` 改名 `submittedAttachments`
+  // （参数个数不变，客户端的 json 参数计数探测对此免疫）；dsh-llm 的
+  // MessageSourceMap 不再提供共享 `plugin` kind（本插件已改用
+  // RequestUserInput 形状）。cordis 钉 4.0.5（0.2.x 列车解析结果）。
+  { key: "v02", version: "0.2.1-rc.2", family: "current", pins: ["@deepseek-ai/cordis@4.0.5"], harnessDir: join(COMPAT_ENV_ROOT, "harness-0.2.1-rc.2") },
 ].filter((env) => envFlag === "all" || envFlag === env.key);
 
 if (ENVIRONMENTS.length === 0) {
-  console.error(`未知 --env：${envFlag}（可选 rc7 | current | all）`);
+  console.error(`未知 --env：${envFlag}（可选 rc7 | current | v02 | all）`);
   process.exit(2);
 }
 

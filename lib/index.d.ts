@@ -9,6 +9,17 @@
  *
  * 浏览器半边（lib/client.js）用 `ctx.remote.commands.execute(sessionId,
  * '/sparkle <base64>', [])` 程序化调用本命令。
+ *
+ * 跨版本兼容（0.1.0-rc.7 ~ 0.2.x）：
+ * - host 侧 seam（commands.register / CommandInvocation / CommandResult /
+ *   agent.options / LlmRuntime.stream / BlockAssembler / cordis Service）
+ *   在 0.1.x 与 0.2.x 源码级一致，无需分支。
+ * - 一次性润色请求的 user 消息用 `RequestUserInput` 形状（仅 role +
+ *   content，无 id、无 source）。dsh 0.2.x 起 `MessageSourceMap` 不再
+ *   提供共享的 `plugin` kind，且 0.2.x 的 GenerateOptions.messages 明确
+ *   允许"hand-built one-shot"输入；两个版本的 LlmRuntime.forAdapter 都
+ *   在 `message.role !== "assistant"` 处提前返回，不会读取 user 消息的
+ *   source，因此该形状在 0.1.x 与 0.2.x 运行时均可安全工作。
  */
 import { Context, Service } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
@@ -60,6 +71,12 @@ export declare class SparkleError extends Error {
 }
 /**
  * 用指定路由跑一次独立的润色流，返回拼接后的纯文本。
+ *
+ * 草稿以 `RequestUserInput` 形状进 request（仅 role + content）：这是
+ * dsh 0.2.x 为"hand-built one-shot"显式设计的形状，0.2.x 起
+ * `MessageSourceMap` 不再有共享 `plugin` kind；0.1.x 的
+ * `LlmRuntime.forAdapter` 也只在 `message.role === "assistant"` 时读
+ * source，故同一形状跨 0.1.x / 0.2.x 均安全。
  */
 export declare function runSparkle(llm: Pick<LlmRuntime, "stream">, provider: string, model: string, draft: string, signal: AbortSignal, options?: {
     system?: string;

@@ -39,7 +39,7 @@ deepseek-harness（dsh）web UI 插件：**对话框提示词润色**。在输�
 
 ## 安装
 
-要求 Node.js ≥ 22.19，宿主为 deepseek-harness web（0.1.0-rc.7 ~ 0.1.7，插件自动
+要求 Node.js ≥ 22.19，宿主为 deepseek-harness web（**0.1.0-rc.7 ~ 0.2.x**，插件自动
 适配，详见 [COMPATIBILITY.md](COMPATIBILITY.md)）。
 
 ```sh
@@ -53,6 +53,17 @@ pnpm dsh --profile web
 ```
 
 卸载：`pnpm dsh plugin --profile web remove dsh-prompt-sparkle`。
+
+> **版本不匹配提示怎么办？**
+> DSH 启动时会校验插件 `peerDependencies` 里的 `@deepseek-ai/dsh*` 范围是否覆盖当前
+> 运行时版本（`semver.satisfies(runtime, range, { includePrerelease: true })`）。
+> 若提示 `dsh-prompt-sparkle@x.y.z 与 DSH <版本> 不兼容`，说明装到的旧版 peer 范围
+> 不含当前运行时——升级到 ≥ 0.1.8（peer 范围 `>=0.1.0-rc.7 <0.3.0-0`，覆盖 0.2.x）即可：
+>
+> ```sh
+> pnpm dsh plugin --profile web remove dsh-prompt-sparkle
+> pnpm dsh plugin --profile web add dsh-prompt-sparkle@latest
+> ```
 
 ## 使用
 
