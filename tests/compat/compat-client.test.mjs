@@ -48,7 +48,7 @@ assert.ok(Array.isArray(bundleExports.inject), "工厂应导出 inject");
 
 const wire = global.window.__sparkleTest;
 assert.ok(wire, "测试钩子应暴露 __sparkleTest");
-const { getExecuteModeSync, probeExecuteMode, sparkleRequest, fetchModelCatalog, currentSessionId, resetExecuteModeCache } = wire;
+const { getExecuteModeSync, probeExecuteMode, sparkleRequest, fetchModelCatalog, currentSessionId, resetExecuteModeCache, tryOfficialSetDraft } = wire;
 
 // ---------- 忠实复刻 dsh 客户端代理的 execute ----------
 // 参照 dsh-0.1.0-rc.7 / 0.1.1-rc.2 packages/api/gateway/src/client/index.ts#invoke：
@@ -97,7 +97,7 @@ const ATTACHMENTS_RENAMED_EXECUTE_DESCRIPTOR = {
   cancellation: { parameter: "signal" },
 };
 
-/** dsh 0.2.x 描述符（0.2.0-rc.x / 0.2.1-rc.2 实测）：
+/** dsh 0.2.x 描述符（0.2.0-rc.x / 0.2.1-rc.2 / 0.2.1-rc.3 实测）：
  *  execute(agentId, line, submittedAttachments, signal) —— 与 0.1.3+ 的
  *  业务参数完全一致（第三参仍叫 submittedAttachments），唯一差别是 agent
  *  lookup 多了 resource: "session" 标注（0.2.0-rc.2 起 AgentRegistry 的
@@ -215,7 +215,7 @@ test("dsh 0.1.3+：附件参数改名 submittedAttachments 仍判 current（回�
 });
 
 test("dsh 0.2.x：execute 描述符与 0.1.3+ 同形（submittedAttachments + lookup 带 resource）", async () => {
-  // 0.2.1-rc.2 实测：业务参数仍是 line + submittedAttachments（2 个 json），
+  // 0.2.1-rc.2 / rc.3 实测：业务参数仍是 line + submittedAttachments（2 个 json），
   // agent lookup 多了 resource: "session"。计数锚对此免疫 → current 模式。
   resetExecuteModeCache();
   const ctx = makeCtx(null, makeTypert(V02_EXECUTE_DESCRIPTOR));
@@ -409,4 +409,117 @@ test("模型目录：modelCatalog 返回 ok:false / 空目录 / reject 都降级
     "remote.session": { modelCatalog: () => Promise.reject(new Error("transport down")) },
   });
   assert.equal(await fetchModelCatalog(rejecting), null);
+});
+
+// ---------- 官方 setDraft 写回（tryOfficialSetDraft） ----------
+//
+// 0.1.2-alpha.1 起宿主提供 conversation.input.for(actx).setDraft(text)，用于
+// 程序化整份替换草稿（清内联引用 chip、按行分段、光标落末尾、并入 history）。
+// legacy-rc7 既无 conversation 服务也无 sessions.scope，必须降级到合成 paste。
+
+/** 复刻宿主正路：sessions.scope(id) → conversation.input.for(actx).setDraft(text)。 */
+function makeSetDraftHost(recorded, focused = []) {
+  const actx = { id: "actx-test" };
+  return makeCordisLikeCtx({
+    sessions: { scope: (id) => (id === SESSION ? actx : undefined) },
+    conversation: {
+      input: {
+        for: (scope) => {
+          assert.equal(scope, actx, "应传入 sessions.scope(sessionId) 返回的作用域");
+          return {
+            setDraft: (text) => { recorded.push(text); },
+            focus: () => { focused.push(true); },
+          };
+        },
+      },
+    },
+  });
+}
+
+test("写回：current 宿主走官方 setDraft，整份替换并返回 true", () => {
+  const recorded = [];
+  const focused = [];
+  const ctx = makeSetDraftHost(recorded, focused);
+  assert.equal(tryOfficialSetDraft(ctx, SESSION, "润色后的提示词"), true);
+  assert.deepEqual(recorded, ["润色后的提示词"]);
+  assert.deepEqual(focused, [true], "写回后把焦点交回输入面（与 paste 路径行为一致）");
+});
+
+test("写回：legacy-rc7 无 conversation 服务时返回 false（降级 paste）", () => {
+  const ctx = makeCordisLikeCtx({ sessions: { scope: () => ({}) } });
+  assert.equal(ctx.get("conversation"), undefined);
+  assert.equal(tryOfficialSetDraft(ctx, SESSION, "x"), false);
+});
+
+test("写回：无 sessions.scope 时返回 false（legacy-rc7 降级 paste）", () => {
+  const ctx = makeCordisLikeCtx({
+    conversation: { input: { for: () => ({ setDraft: () => {} }) } },
+    sessions: {},
+  });
+  assert.equal(tryOfficialSetDraft(ctx, SESSION, "x"), false);
+});
+
+test("写回：非 retained 会话（scope 返回 undefined）不得写回", () => {
+  const recorded = [];
+  const ctx = makeSetDraftHost(recorded);
+  assert.equal(tryOfficialSetDraft(ctx, "session-not-retained", "x"), false);
+  assert.deepEqual(recorded, [], "未落到 setDraft");
+});
+
+test("写回：input.for 抛错（requires a retained Session scope）被吞掉转 false", () => {
+  const ctx = makeCordisLikeCtx({
+    sessions: { scope: () => ({}) },
+    conversation: {
+      input: {
+        for: () => { throw new Error("conversation.input.for requires a retained Session scope"); },
+      },
+    },
+  });
+  assert.equal(tryOfficialSetDraft(ctx, SESSION, "x"), false);
+});
+
+test("写回：sessionId 缺失或空串直接返回 false，不触碰服务", () => {
+  const recorded = [];
+  const ctx = makeSetDraftHost(recorded);
+  assert.equal(tryOfficialSetDraft(ctx, undefined, "x"), false);
+  assert.equal(tryOfficialSetDraft(ctx, "", "x"), false);
+  assert.deepEqual(recorded, []);
+});
+
+test("写回：setDraft 自身抛错时返回 false，让 paste 路径接手", () => {
+  const ctx = makeCordisLikeCtx({
+    sessions: { scope: () => ({}) },
+    conversation: { input: { for: () => ({ setDraft: () => { throw new Error("editor disposed"); } }) } },
+  });
+  assert.equal(tryOfficialSetDraft(ctx, SESSION, "x"), false);
+});
+
+test("写回：focus 抛错不影响写回成功（焦点不是前置条件）", () => {
+  const recorded = [];
+  const ctx = makeCordisLikeCtx({
+    sessions: { scope: () => ({}) },
+    conversation: {
+      input: {
+        for: () => ({
+          setDraft: (text) => { recorded.push(text); },
+          focus: () => { throw new Error("no root element"); },
+        }),
+      },
+    },
+  });
+  assert.equal(tryOfficialSetDraft(ctx, SESSION, "写回成功"), true);
+  assert.deepEqual(recorded, ["写回成功"]);
+});
+
+test("写回：宿主缺 setDraft 方法（早期 current 形态）返回 false", () => {
+  const ctx = makeCordisLikeCtx({
+    sessions: { scope: () => ({}) },
+    conversation: { input: { for: () => ({ notify: () => {}, focus: () => {} }) } },
+  });
+  assert.equal(tryOfficialSetDraft(ctx, SESSION, "x"), false);
+});
+
+test("写回：宿主无 ctx.get API（非 cordis ctx）返回 false 不抛错", () => {
+  assert.equal(tryOfficialSetDraft({}, SESSION, "x"), false);
+  assert.equal(tryOfficialSetDraft(null, SESSION, "x"), false);
 });

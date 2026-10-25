@@ -39,8 +39,8 @@ deepseek-harness（dsh）web UI 插件：**对话框提示词润色**。在输�
 
 ## 安装
 
-要求 Node.js ≥ 22.19，宿主为 deepseek-harness web（**0.1.0-rc.7 ~ 0.2.x**，插件自动
-适配，详见 [COMPATIBILITY.md](COMPATIBILITY.md)）。
+要求 Node.js ≥ 22.19，宿主为 deepseek-harness web（**0.1.0-rc.7 ~ 0.2.x**，含最新的
+`0.2.1-rc.3`，插件自动适配，详见 [COMPATIBILITY.md](COMPATIBILITY.md)）。
 
 ```sh
 # 在 deepseek-harness 仓库内执行（dsh CLI 从源码运行）
@@ -58,7 +58,8 @@ pnpm dsh --profile web
 > DSH 启动时会校验插件 `peerDependencies` 里的 `@deepseek-ai/dsh*` 范围是否覆盖当前
 > 运行时版本（`semver.satisfies(runtime, range, { includePrerelease: true })`）。
 > 若提示 `dsh-prompt-sparkle@x.y.z 与 DSH <版本> 不兼容`，说明装到的旧版 peer 范围
-> 不含当前运行时——升级到 ≥ 0.1.8（peer 范围 `>=0.1.0-rc.7 <0.3.0-0`，覆盖 0.2.x）即可：
+> 不含当前运行时——升级到 ≥ 0.1.8（peer 范围 `>=0.1.0-rc.7 <0.3.0-0`，覆盖 0.2.x
+> 全线含 `0.2.1-rc.3`）即可：
 >
 > ```sh
 > pnpm dsh plugin --profile web remove dsh-prompt-sparkle
@@ -87,7 +88,8 @@ pnpm dsh --profile web
 流式接口跑一次独立润色，草稿以 base64 走命令参数、结果原路返回浏览器，不落会话
 日志；浏览器半边是手写的 vanilla JS（零依赖、无构建步骤），负责按钮、菜单、设置
 面板与草稿写回，同时适配 textarea 与 Lexical 富文本两种输入框，并按宿主版本自动
-选择调用形态。插件自身通过 Schemastery 暴露结构化配置（`temperature` /
+选择调用形态（写回优先走宿主官方 `conversation.input.setDraft`，老宿主降级为
+合成 paste）。插件自身通过 Schemastery 暴露结构化配置（`temperature` /
 `maxTokens` / `timeoutMs` / `defaultStyle` / `customPrompt` / `fastModel`），可在
 宿主设置面板全局定制。多版本兼容的适配细节见
 [COMPATIBILITY.md](COMPATIBILITY.md)。

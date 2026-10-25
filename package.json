@@ -1,6 +1,6 @@
 {
   "name": "dsh-prompt-sparkle",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "DeepSeek Harness 插件：对话框提示词润色——在 composer 工具栏模型选择器旁挂 sparkle 图标按钮（+ Ctrl/Cmd+Shift+E），用当前会话的模型把草稿重写为更清晰的提示词，结果写回输入框（Ctrl/Cmd+Z 可撤销）。",
   "license": "MIT",
   "type": "module",
@@ -55,10 +55,10 @@
     "@deepseek-ai/dsh-llm": ">=0.1.0-rc.7 <0.3.0-0"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "^4.0.4",
-    "@deepseek-ai/dsh-agent": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-commands": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-llm": "0.2.1-rc.2",
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-agent": "0.2.1-rc.3",
+    "@deepseek-ai/dsh-commands": "0.2.1-rc.3",
+    "@deepseek-ai/dsh-llm": "0.2.1-rc.3",
     "@types/node": "^24.0.0",
     "semver": "^7.7.2",
     "typescript": "^5.8.0"

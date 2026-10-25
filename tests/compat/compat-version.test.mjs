@@ -68,6 +68,7 @@ test("familyOf：0.2.x 全线归类 current（host seam 与 0.1.x 源码级一�
   assert.equal(familyOf("0.2.0-rc.1"), "current");
   assert.equal(familyOf("0.2.0-rc.2"), "current");
   assert.equal(familyOf("0.2.1-rc.2"), "current");
+  assert.equal(familyOf("0.2.1-rc.3"), "current");
   assert.equal(familyOf("0.2.9"), "current");
 });
 
@@ -85,10 +86,10 @@ test("familyOf：未知/空版本归类 unknown", () => {
 test("detectHarnessVersion：在当前开发环境解析到 dsh 包版本", () => {
   const info = detectHarnessVersion();
   assert.equal(typeof info.family, "string");
-  // 插件 devDependencies 安装的是 0.2.1-rc.2 系列
-  assert.equal(info.packages.commands, "0.2.1-rc.2");
-  assert.equal(info.packages.llm, "0.2.1-rc.2");
-  assert.equal(info.packages.agent, "0.2.1-rc.2");
+  // 插件 devDependencies 安装的是 0.2.1-rc.3 系列
+  assert.equal(info.packages.commands, "0.2.1-rc.3");
+  assert.equal(info.packages.llm, "0.2.1-rc.3");
+  assert.equal(info.packages.agent, "0.2.1-rc.3");
   assert.equal(info.family, "current");
   assert.equal(info.packages.cordis, "4.0.5");
 });
@@ -101,5 +102,5 @@ test("describeHarness：输出人类可读摘要", () => {
   const info = detectHarnessVersion();
   const text = describeHarness(info);
   assert.match(text, /family=current/);
-  assert.match(text, /commands@0\.2\.1-rc\.2/);
+  assert.match(text, /commands@0\.2\.1-rc\.3/);
 });

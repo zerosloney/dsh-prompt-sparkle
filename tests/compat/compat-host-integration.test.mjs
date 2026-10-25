@@ -5,7 +5,7 @@
 // 组合出最小 Cordis 根，挂载插件后走真实 CommandRuntime.execute 执行
 // /sparkle 命令——验证"插件在目标版本 harness 下可加载、核心润色功能可
 // 调用"这一完成标准。同一文件由 runner 分别在 0.1.0-rc.7、0.1.1-rc.2 与
-// 0.2.1-rc.2 环境下执行（DSH_HARNESS_FAMILY 声明期望的兼容家族）。
+// 0.2.1-rc.3 环境下执行（DSH_HARNESS_FAMILY 声明期望的兼容家族）。
 //
 // 关键机制：把插件经临时 node_modules 链接目录导入，使插件自身的
 // @deepseek-ai/* import 解析到目标环境的包（而非插件 devDependencies），
@@ -186,7 +186,7 @@ test("环境版本核实：插件解析到 DSH_HARNESS_DIR 的包版本", () => 
   assert.match(resolvedVersions["dsh-commands"], /^0\.(1|2)\./, "dsh-commands 应为 0.1.x 或 0.2.x");
   assert.match(resolvedVersions["dsh-llm"], /^0\.(1|2)\./, "dsh-llm 应为 0.1.x 或 0.2.x");
   assert.match(resolvedVersions.cordis, /^4\./, "cordis 应为 4.x");
-  // 防止误用插件 devDependencies（0.2.1-rc.2）
+  // 防止误用插件 devDependencies（0.2.1-rc.3）
   if (expectedFamily === "legacy-rc7") {
     assert.equal(resolvedVersions["dsh-commands"], "0.1.0-rc.7");
     assert.equal(resolvedVersions["dsh-llm"], "0.1.0-rc.7");

@@ -3,7 +3,7 @@
  * dsh-prompt-sparkle 兼容性测试编排器。
  *
  * 在两个隔离 harness 环境（deepseek-harness 0.1.0-rc.7 / 0.1.1-rc.2 /
- * 0.2.1-rc.2）下依次运行：
+ * 0.2.1-rc.3）下依次运行：
  *   1. 回归基线：npm run build + 原有功能测试（tests/*.test.mjs）
  *   2. 版本识别模块测试（compat-version）
  *   3. peer 依赖范围测试（compat-peer-ranges）
@@ -45,7 +45,10 @@ const ENVIRONMENTS = [
   // （参数个数不变，客户端的 json 参数计数探测对此免疫）；dsh-llm 的
   // MessageSourceMap 不再提供共享 `plugin` kind（本插件已改用
   // RequestUserInput 形状）。cordis 钉 4.0.5（0.2.x 列车解析结果）。
-  { key: "v02", version: "0.2.1-rc.2", family: "current", pins: ["@deepseek-ai/cordis@4.0.5"], harnessDir: join(COMPAT_ENV_ROOT, "harness-0.2.1-rc.2") },
+  // 取列车最新点 0.2.1-rc.3：rc.2 → rc.3 的差异经 git diff 逐包核对，
+  // 只新增 whenDraftExists / appendDraft / More-menu 槽与 analytics 字段，
+  // 插件依赖面（commands / llm / agent / typert 描述符 / composer setDraft）零变更。
+  { key: "v02", version: "0.2.1-rc.3", family: "current", pins: ["@deepseek-ai/cordis@4.0.5"], harnessDir: join(COMPAT_ENV_ROOT, "harness-0.2.1-rc.3") },
 ].filter((env) => envFlag === "all" || envFlag === env.key);
 
 if (ENVIRONMENTS.length === 0) {

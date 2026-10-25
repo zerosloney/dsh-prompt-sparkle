@@ -27,6 +27,7 @@ const SUPPORTED_HARNESS_VERSIONS = [
   "0.2.0-rc.1",
   "0.2.0-rc.2",
   "0.2.1-rc.2",
+  "0.2.1-rc.3",
 ];
 
 /** 与 harness 版本锁步发布的 peer 包（dsh-*）。 */
@@ -87,16 +88,16 @@ test("schemastery 依赖覆盖 3.18.x（0.1.x 用 3.18.1，0.2.x 用 3.18.5）",
   }
 });
 
-test("devDependencies 覆盖测试所需的 0.2.1-rc.2 系列", () => {
+test("devDependencies 覆盖测试所需的 0.2.1-rc.3 系列", () => {
   for (const name of [...LOCKSTEP_PEERS, "@deepseek-ai/cordis"]) {
     assert.ok(manifest.devDependencies?.[name], `缺少 devDependency：${name}`);
   }
-  // 编译/类型检查基线：devDeps 精确锁到当前运行时 0.2.1-rc.2（与宿主同版本）
+  // 编译/类型检查基线：devDeps 精确锁到当前运行时 0.2.1-rc.3（与宿主同版本）
   for (const name of LOCKSTEP_PEERS) {
     assert.equal(
       manifest.devDependencies[name],
-      "0.2.1-rc.2",
-      `devDependencies ${name} 应精确锁定 0.2.1-rc.2`,
+      "0.2.1-rc.3",
+      `devDependencies ${name} 应精确锁定 0.2.1-rc.3`,
     );
   }
 });

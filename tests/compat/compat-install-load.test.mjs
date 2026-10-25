@@ -39,7 +39,7 @@ const test = Object.assign(
 );
 
 // 版本标签：从环境目录名推导（harness-0.1.0-rc.7 / harness-0.1.1-rc.2 /
-// harness-0.2.1-rc.2），避免多个 current 家族的环境共用一个 DSH_HOME 而
+// harness-0.2.1-rc.3），避免多个 current 家族的环境共用一个 DSH_HOME 而
 // 互相串味；family 只作为兜底。
 const versionTag = harnessReady
   ? (basename(harnessDir).replace(/^harness-/, "") || (expectedFamily === "legacy-rc7" ? "0.1.0-rc.7" : "0.1.1-rc.2"))
