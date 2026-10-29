@@ -140,7 +140,8 @@ test("handleSparkleCommand：流失败翻译成 error 结果", async () => {
   };
   const result = await handleSparkleCommand(AGENT, encodeDraft("draft"), llm, SIGNAL);
   assert.equal(result.kind, "error");
-  assert.match(result.text, /route down/);
+  assert.equal(result.text, "模型服务暂时不可用，请稍后重试");
+  assert.doesNotMatch(result.text, /route down/);
 });
 
 test("handleSparkleCommand：支持多风格预设参数与自定义提示词", async () => {
@@ -167,6 +168,52 @@ test("handleSparkleCommand：支持多风格预设参数与自定义提示词", 
   assert.equal(customLlm.requests[0].system, "Custom System Prompt");
   assert.equal(customLlm.requests[0].temperature, 0.1);
   assert.equal(customLlm.requests[0].maxTokens, 2048);
+});
+
+test("handleSparkleCommand：拒绝越界或格式错误的客户端 options", async () => {
+  const invalidOptions = [
+    { timeoutMs: -1 },
+    { temperature: 2 },
+    { maxTokens: 1000000 },
+    { fastModel: { provider: "", model: "model" } },
+    { customPrompt: "x".repeat(20001) },
+  ];
+  for (const options of invalidOptions) {
+    const llm = fakeLlm(textScript("不应调用"));
+    const encoded = Buffer.from(JSON.stringify(options), "utf8").toString("base64");
+    const result = await handleSparkleCommand(
+      AGENT,
+      encodeDraft("草稿") + " standard " + encoded,
+      llm,
+      SIGNAL,
+    );
+    assert.equal(result.kind, "error");
+    assert.equal(llm.requests.length, 0);
+  }
+});
+
+test("handleSparkleCommand：拒绝非规范 Base64 和超长草稿", async () => {
+  const llm = fakeLlm(textScript("不应调用"));
+  const malformed = await handleSparkleCommand(AGENT, "%%%", llm, SIGNAL);
+  assert.equal(malformed.kind, "error");
+
+  const oversized = await handleSparkleCommand(
+    AGENT,
+    encodeDraft("x".repeat(100001)),
+    llm,
+    SIGNAL,
+  );
+  assert.equal(oversized.kind, "error");
+  assert.equal(llm.requests.length, 0);
+});
+
+test("handleSparkleCommand：不向用户回显底层供应商错误细节", async () => {
+  const llm = fakeLlm([
+    { type: "finish", reason: { kind: "error", error: { message: "secret-token=abc endpoint=https://private" } } },
+  ]);
+  const result = await handleSparkleCommand(AGENT, encodeDraft("draft"), llm, SIGNAL);
+  assert.equal(result.kind, "error");
+  assert.doesNotMatch(result.text, /secret-token|private/);
 });
 
 test("handleSparkleCommand：支持客户端 options Base64 动态覆盖与极速模型路由", async () => {

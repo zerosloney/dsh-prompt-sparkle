@@ -106,14 +106,70 @@ export interface SparkleOptions {
   customPrompt?: string;
 }
 
+const MAX_DRAFT_CHARS = 100_000;
+const MAX_CUSTOM_PROMPT_CHARS = 20_000;
+const BASE64_PATTERN = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+
+function decodeBase64Strict(raw: string, label: string): string {
+  const encoded = raw.trim();
+  if (encoded.length === 0 || encoded.length % 4 !== 0 || !BASE64_PATTERN.test(encoded)) {
+    throw new SparkleError(`${label}编码无效`);
+  }
+  const bytes = Buffer.from(encoded, "base64");
+  if (bytes.toString("base64") !== encoded) throw new SparkleError(`${label}编码无效`);
+  return bytes.toString("utf8");
+}
+
+function optionalFiniteNumber(value: unknown, name: string, min: number, max: number): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < min || value > max) {
+    throw new SparkleError(`${name}超出允许范围`);
+  }
+  return value;
+}
+
 export function decodeOptions(raw?: string): SparkleOptions | undefined {
   if (!raw || raw.trim().length === 0) return undefined;
+  let value: unknown;
   try {
-    const json = Buffer.from(raw.trim(), "base64").toString("utf8");
-    return JSON.parse(json) as SparkleOptions;
-  } catch {
-    return undefined;
+    value = JSON.parse(decodeBase64Strict(raw, "选项"));
+  } catch (error) {
+    if (error instanceof SparkleError) throw error;
+    throw new SparkleError("选项格式无效");
   }
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new SparkleError("选项格式无效");
+  }
+  const input = value as Record<string, unknown>;
+  const allowed = new Set(["temperature", "maxTokens", "timeoutMs", "fastModel", "customPrompt"]);
+  if (Object.keys(input).some((key) => !allowed.has(key))) throw new SparkleError("选项包含未知字段");
+  const options: SparkleOptions = {
+    temperature: optionalFiniteNumber(input.temperature, "temperature", 0, 1),
+    maxTokens: optionalFiniteNumber(input.maxTokens, "maxTokens", 128, 8192),
+    timeoutMs: optionalFiniteNumber(input.timeoutMs, "timeoutMs", 3000, 60000),
+  };
+  if (options.maxTokens !== undefined && !Number.isInteger(options.maxTokens)) throw new SparkleError("maxTokens 必须为整数");
+  if (options.timeoutMs !== undefined && !Number.isInteger(options.timeoutMs)) throw new SparkleError("timeoutMs 必须为整数");
+  if (input.customPrompt !== undefined) {
+    if (typeof input.customPrompt !== "string" || input.customPrompt.length > MAX_CUSTOM_PROMPT_CHARS) {
+      throw new SparkleError("customPrompt 格式无效或过长");
+    }
+    options.customPrompt = input.customPrompt;
+  }
+  if (input.fastModel !== undefined) {
+    if (input.fastModel === null || typeof input.fastModel !== "object" || Array.isArray(input.fastModel)) {
+      throw new SparkleError("fastModel 格式无效");
+    }
+    const route = input.fastModel as Record<string, unknown>;
+    if (Object.keys(route).some((key) => key !== "provider" && key !== "model") ||
+        typeof route.provider !== "string" || typeof route.model !== "string" ||
+        route.provider.trim().length === 0 || route.model.trim().length === 0 ||
+        route.provider.length > 200 || route.model.length > 200) {
+      throw new SparkleError("fastModel 路由无效");
+    }
+    options.fastModel = { provider: route.provider.trim(), model: route.model.trim() };
+  }
+  return options;
 }
 
 /** 浏览器半边可依赖的 wire 编码（标准 base64，无空白）。 */
@@ -123,10 +179,9 @@ export function encodeDraft(text: string): string {
 
 /** 解码命令参数里的 base64 草稿；非法或空白输入抛 SparkleError。 */
 export function decodeDraft(raw: string): string {
-  const text = Buffer.from(raw.trim(), "base64").toString("utf8");
-  if (text.trim().length === 0) {
-    throw new SparkleError("草稿为空或编码无效");
-  }
+  const text = decodeBase64Strict(raw, "草稿");
+  if (text.trim().length === 0) throw new SparkleError("草稿为空或编码无效");
+  if (text.length > MAX_DRAFT_CHARS) throw new SparkleError("草稿过长，请缩短后重试");
   return text;
 }
 
@@ -190,7 +245,7 @@ export async function runSparkle(
     throw new SparkleError("润色输出超过 token 上限，请缩短草稿后重试");
   }
   if (finish.kind === "error" || finish.kind === "aborted") {
-    throw new SparkleError(`润色请求失败：${finish.failure.message}`);
+    throw new SparkleError("模型服务暂时不可用，请稍后重试");
   }
   const blocks = assembler.blocks();
   if (blocks.some((block) => block.type === "tool-call")) {
@@ -218,21 +273,15 @@ export async function handleSparkleCommand(
   const parts = rawInput.trim().split(/\s+/);
   const b64 = parts[0] ?? "";
   const styleArg = (parts[1] as SparkleStyle) ?? config.defaultStyle ?? "standard";
-  const clientOptions = decodeOptions(parts[2]);
 
-  const customPrompt = clientOptions?.customPrompt ?? config.customPrompt;
-  const systemPrompt =
-    customPrompt && customPrompt.trim().length > 0
-      ? customPrompt
-      : STYLE_PROMPTS[styleArg] ?? STYLE_PROMPTS.standard;
-
-  let draft: string;
   try {
-    draft = decodeDraft(b64);
-  } catch (error) {
-    return { kind: "error", text: error instanceof SparkleError ? error.message : String(error) };
-  }
-  try {
+    const clientOptions = decodeOptions(parts[2]);
+    const customPrompt = clientOptions?.customPrompt ?? config.customPrompt;
+    const systemPrompt =
+      customPrompt && customPrompt.trim().length > 0
+        ? customPrompt
+        : STYLE_PROMPTS[styleArg] ?? STYLE_PROMPTS.standard;
+    const draft = decodeDraft(b64);
     let provider: string;
     let model: string;
     const fast = clientOptions?.fastModel ?? config.fastModel;
@@ -260,7 +309,7 @@ export async function handleSparkleCommand(
     if (signal.aborted) throw error;
     return {
       kind: "error",
-      text: error instanceof SparkleError ? error.message : `润色失败：${String(error)}`,
+      text: error instanceof SparkleError ? error.message : "润色失败，请稍后重试",
     };
   }
 }

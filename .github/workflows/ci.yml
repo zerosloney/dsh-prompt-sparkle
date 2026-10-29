@@ -21,3 +21,9 @@ jobs:
 
       - name: Run tests & Build
         run: npm test
+
+      - name: Verify reproducible client bundle
+        run: npm run build:check
+
+      - name: Verify publication contents
+        run: npm pack --dry-run

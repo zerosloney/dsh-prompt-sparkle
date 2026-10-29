@@ -68,8 +68,16 @@ function run(cmd, cmdArgs, label) {
   }
 }
 
-// 1) 测试 + 构建（对应原工作流的 npm ci + npm test；本机无需每次重装依赖）
+// 1) 发布前检查：测试、可重复构建、打包内容，以及 Git 工作树/身份。
 run(npmCmd, ["test"], "npm test（tsc 构建 + node --test）");
+run(npmCmd, ["run", "build:check"], "验证客户端产物可重复构建");
+run(npmCmd, ["pack", "--dry-run"], "验证 npm 发布包内容");
+if (!skipGit) {
+  run("git", ["diff", "--quiet"], "检查 Git 工作树未修改");
+  run("git", ["diff", "--cached", "--quiet"], "检查 Git 暂存区为空");
+  run("git", ["config", "user.name"], "检查 Git 用户名");
+  run("git", ["config", "user.email"], "检查 Git 邮箱");
+}
 
 // 2) 版本递增
 const pkg = JSON.parse(readFileSync(PKG_PATH, "utf8"));
@@ -81,14 +89,19 @@ if (!dryRun) {
   writeFileSync(PKG_PATH, JSON.stringify(pkg, null, 2) + "\n", "utf8");
 }
 
-// 3) 发布（对应原工作流的 npm publish --access public，需先 npm login）
-if (dryRun) {
-  console.log("（dry-run：跳过 npm publish --access public）");
-} else {
-  run(npmCmd, ["publish", "--access", "public"], "npm publish --access public");
+// 3) release tag 必须尚不存在。
+if (!dryRun && !skipGit) {
+  const existingTag = spawnSync("git", ["rev-parse", "--verify", "refs/tags/v" + next], {
+    cwd: PLUGIN_ROOT,
+    stdio: "ignore",
+  });
+  if (existingTag.status === 0) {
+    console.error(`✖ release tag v${next} 已存在`);
+    process.exit(2);
+  }
 }
 
-// 4) git tag + 提交（对应原工作流的 v* tag 触发语义）
+// 4) 先形成 release commit/tag；所有本地可失败步骤均置于 npm publish 前。
 if (dryRun) {
   console.log("（dry-run：跳过 git tag/commit）");
 } else if (skipGit) {
@@ -106,6 +119,13 @@ if (dryRun) {
     run("git", ["tag", `v${next}`], `git tag v${next}`);
     console.log("\n提示：推送远端请执行  git push && git push --tags");
   }
+}
+
+// 5) 最后执行不可逆的 npm 发布。
+if (dryRun) {
+  console.log("（dry-run：跳过 npm publish --access public）");
+} else {
+  run(npmCmd, ["publish", "--access", "public"], "npm publish --access public");
 }
 
 console.log(`\n✔ 本机发布完成：v${next}（${new Date().toISOString()}）${dryRun ? " [dry-run]" : ""}`);
